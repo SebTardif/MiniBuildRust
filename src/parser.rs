@@ -101,9 +101,9 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
             }
         } else {
             // indented line — belongs to current rule
-            let rule = current_rule.as_mut().ok_or_else(|| {
-                format!("line {line_num}: indented line outside of a rule block")
-            })?;
+            let rule = current_rule
+                .as_mut()
+                .ok_or_else(|| format!("line {line_num}: indented line outside of a rule block"))?;
 
             if let Some(rest) = line.strip_prefix("deps ") {
                 rule.deps = split_list(rest);
@@ -121,9 +121,7 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
             } else if let Some(rest) = line.strip_prefix("phony ") {
                 rule.phony = rest.trim().eq_ignore_ascii_case("true");
             } else {
-                return Err(format!(
-                    "line {line_num}: unknown rule directive: {line}"
-                ));
+                return Err(format!("line {line_num}: unknown rule directive: {line}"));
             }
         }
     }
@@ -188,9 +186,7 @@ pub fn expand_vars(s: &str, env: &HashMap<String, String>) -> String {
             // $VAR form
             let start = i + 1;
             let mut end = start;
-            while end < bytes.len()
-                && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_')
-            {
+            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
                 end += 1;
             }
             if end > start {

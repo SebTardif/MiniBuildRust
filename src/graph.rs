@@ -129,10 +129,7 @@ pub fn reachable_from(target: &str, graph: &BuildGraph) -> Result<HashSet<String
 
 /// Kahn's algorithm for topological sort, restricted to the given subset of nodes.
 /// Returns nodes in execution order (leaves first).
-pub fn topological_sort(
-    graph: &BuildGraph,
-    subset: &HashSet<String>,
-) -> Vec<String> {
+pub fn topological_sort(graph: &BuildGraph, subset: &HashSet<String>) -> Vec<String> {
     let mut in_degree: HashMap<&str, usize> = HashMap::new();
     for node in subset {
         in_degree.insert(node.as_str(), 0);
@@ -198,9 +195,7 @@ mod tests {
 
     #[test]
     fn test_simple_graph() {
-        let bf = make_buildfile(
-            "rule a\n  deps b\n  run echo a\nrule b\n  run echo b\n",
-        );
+        let bf = make_buildfile("rule a\n  deps b\n  run echo a\nrule b\n  run echo b\n");
         let g = build_graph(&bf).unwrap();
         assert_eq!(g.deps["a"], vec!["b"]);
         assert!(g.deps["b"].is_empty());
@@ -208,9 +203,7 @@ mod tests {
 
     #[test]
     fn test_cycle_detection() {
-        let bf = make_buildfile(
-            "rule a\n  deps b\n  run echo a\nrule b\n  deps a\n  run echo b\n",
-        );
+        let bf = make_buildfile("rule a\n  deps b\n  run echo a\nrule b\n  deps a\n  run echo b\n");
         let result = build_graph(&bf);
         assert!(result.is_err());
         let err = result.unwrap_err();

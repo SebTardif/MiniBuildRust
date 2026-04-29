@@ -2,5 +2,12 @@
 name = "minibuild"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.70.0"
+description = "A parallel, incremental build system with zero dependencies"
+license = "MIT"
+repository = "https://github.com/SebTardif/MiniBuildRust"
+readme = "README.md"
+keywords = ["build-system", "parallel", "incremental", "make", "build"]
+categories = ["command-line-utilities", "development-tools::build-utils"]
 
 [dependencies]

@@ -98,7 +98,14 @@ mod tests {
     #[test]
     fn test_all_flags() {
         let args: Vec<String> = vec![
-            "--file", "build.mb", "--jobs", "8", "--clean", "--dry-run", "--verbose", "all",
+            "--file",
+            "build.mb",
+            "--jobs",
+            "8",
+            "--clean",
+            "--dry-run",
+            "--verbose",
+            "all",
         ]
         .into_iter()
         .map(String::from)
@@ -114,10 +121,7 @@ mod tests {
 
     #[test]
     fn test_zero_jobs_rejected() {
-        let args: Vec<String> = vec!["--jobs", "0"]
-            .into_iter()
-            .map(String::from)
-            .collect();
+        let args: Vec<String> = vec!["--jobs", "0"].into_iter().map(String::from).collect();
         assert!(parse_args(&args).is_err());
     }
 

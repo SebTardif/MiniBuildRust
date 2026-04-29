@@ -111,13 +111,7 @@ pub fn execute(
                     "dependency failed".to_string(),
                 ));
                 // Propagate: unblock dependents so they can also be skipped
-                notify_dependents(
-                    &name,
-                    graph,
-                    &subset,
-                    &mut in_degree,
-                    &mut ready_queue,
-                );
+                notify_dependents(&name, graph, &subset, &mut in_degree, &mut ready_queue);
                 continue;
             }
 
@@ -133,33 +127,18 @@ pub fn execute(
                     }
                     completed.insert(name.clone());
                     results.push(RuleResult::Skipped(name.clone()));
-                    notify_dependents(
-                        &name,
-                        graph,
-                        &subset,
-                        &mut in_degree,
-                        &mut ready_queue,
-                    );
+                    notify_dependents(&name, graph, &subset, &mut in_degree, &mut ready_queue);
                     continue;
                 }
             }
 
             if opts.dry_run {
-                let expanded_cmds: Vec<String> = rule
-                    .commands
-                    .iter()
-                    .map(|c| expand_vars(c, env))
-                    .collect();
+                let expanded_cmds: Vec<String> =
+                    rule.commands.iter().map(|c| expand_vars(c, env)).collect();
                 eprintln!("[DRY-RUN] {} -> {}", name, expanded_cmds.join(" && "));
                 completed.insert(name.clone());
                 results.push(RuleResult::Skipped(name.clone()));
-                notify_dependents(
-                    &name,
-                    graph,
-                    &subset,
-                    &mut in_degree,
-                    &mut ready_queue,
-                );
+                notify_dependents(&name, graph, &subset, &mut in_degree, &mut ready_queue);
                 continue;
             }
 
@@ -203,26 +182,14 @@ pub fn execute(
                         );
                         completed.insert(name.clone());
                         results.push(RuleResult::Success(name.clone()));
-                        notify_dependents(
-                            &name,
-                            graph,
-                            &subset,
-                            &mut in_degree,
-                            &mut ready_queue,
-                        );
+                        notify_dependents(&name, graph, &subset, &mut in_degree, &mut ready_queue);
                     }
                     Err(msg) => {
                         eprintln!("[FAIL] {}: {}", name, msg);
                         failed.insert(name.clone());
                         results.push(RuleResult::Failed(name.clone(), msg));
                         // Propagate failure: unblock dependents so they get skipped
-                        notify_dependents(
-                            &name,
-                            graph,
-                            &subset,
-                            &mut in_degree,
-                            &mut ready_queue,
-                        );
+                        notify_dependents(&name, graph, &subset, &mut in_degree, &mut ready_queue);
                     }
                 }
             }
@@ -240,8 +207,14 @@ pub fn execute(
     } else {
         eprintln!(
             "\nBuild OK. {} rule(s) completed, {} skipped.",
-            results.iter().filter(|r| matches!(r, RuleResult::Success(_))).count(),
-            results.iter().filter(|r| matches!(r, RuleResult::Skipped(_))).count(),
+            results
+                .iter()
+                .filter(|r| matches!(r, RuleResult::Success(_)))
+                .count(),
+            results
+                .iter()
+                .filter(|r| matches!(r, RuleResult::Skipped(_)))
+                .count(),
         );
     }
 
@@ -310,10 +283,8 @@ fn execute_rule(
         let stdout_handle = stdout.map(|out| {
             thread::spawn(move || {
                 let reader = BufReader::new(out);
-                for line in reader.lines() {
-                    if let Ok(line) = line {
-                        println!("[{}] {}", rule_name_out, line);
-                    }
+                for line in reader.lines().map_while(Result::ok) {
+                    println!("[{}] {}", rule_name_out, line);
                 }
             })
         });
@@ -323,10 +294,8 @@ fn execute_rule(
         let stderr_handle = stderr.map(|err| {
             thread::spawn(move || {
                 let reader = BufReader::new(err);
-                for line in reader.lines() {
-                    if let Ok(line) = line {
-                        eprintln!("[{}] {}", rule_name_err, line);
-                    }
+                for line in reader.lines().map_while(Result::ok) {
+                    eprintln!("[{}] {}", rule_name_err, line);
                 }
             })
         });

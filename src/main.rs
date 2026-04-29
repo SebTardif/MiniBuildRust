@@ -137,7 +137,7 @@ mod integration_tests {
             dry_run: false,
             verbose: false,
         };
-        executor::execute(&bf, &g, &order, &cache, &opts)
+        executor::execute(&bf, &g, &order, cache, &opts)
     }
 
     /// Diamond dependency: A→B, A→C, B→D, C→D

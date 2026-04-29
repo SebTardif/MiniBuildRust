@@ -1,5 +1,9 @@
 # Minibuild
 
+[![CI](https://github.com/SebTardif/MiniBuildRust/actions/workflows/ci.yml/badge.svg)](https://github.com/SebTardif/MiniBuildRust/actions/workflows/ci.yml)
+[![Security Audit](https://github.com/SebTardif/MiniBuildRust/actions/workflows/security.yml/badge.svg)](https://github.com/SebTardif/MiniBuildRust/actions/workflows/security.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A parallel build system written in Rust with **zero external dependencies**. Minibuild reads a declarative build file, resolves dependencies into a DAG, and executes independent jobs concurrently across a configurable worker pool — with incremental rebuild support so unchanged targets are skipped automatically.
 
 Think of it as a simplified, from-scratch alternative to Make or Ninja.
