@@ -53,6 +53,9 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
             "--clean" => cli.clean = true,
             "--dry-run" | "-n" => cli.dry_run = true,
             "--verbose" | "-v" => cli.verbose = true,
+            "--version" | "-V" => {
+                return Err(format!("minibuild {}", env!("CARGO_PKG_VERSION")));
+            }
             "--help" | "-h" => {
                 return Err(usage());
             }
@@ -79,6 +82,7 @@ fn usage() -> String {
        --clean             Remove cache and rebuild all\n  \
        --dry-run, -n       Print what would be executed\n  \
        --verbose, -v       Verbose output\n  \
+       --version, -V       Show version\n  \
        --help, -h          Show this help"
         .to_string()
 }
@@ -123,6 +127,13 @@ mod tests {
     fn test_zero_jobs_rejected() {
         let args: Vec<String> = vec!["--jobs", "0"].into_iter().map(String::from).collect();
         assert!(parse_args(&args).is_err());
+    }
+
+    #[test]
+    fn test_version_flag() {
+        let args: Vec<String> = vec!["--version"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.starts_with("minibuild "));
     }
 
     #[test]

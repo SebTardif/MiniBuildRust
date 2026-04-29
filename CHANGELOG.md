@@ -19,16 +19,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * resolve all CI/CD pipeline failures ([ee68970](https://github.com/SebTardif/MiniBuildRust/commit/ee68970a08b48539f0d086bd954afdd5b4466399))
 * use toolchain input for MSRV check to prevent dependabot version conflicts ([8cf58ae](https://github.com/SebTardif/MiniBuildRust/commit/8cf58ae60f2a79f6181c44f55a1c420b4c2a8174))
 
-## [0.1.0] - 2025-06-28
 
-### Added
-
-- Declarative Buildfile DSL with named rules, dependencies, inputs/outputs, environment variables, and phony targets
-- DAG-based dependency resolver with cycle detection and topological sorting
-- Parallel execution engine with configurable worker pool (`--jobs N`)
-- Real-time stdout/stderr streaming with rule-name attribution
-- Fail-fast execution with downstream job cancellation
-- Timestamp-based incremental build cache (`.minibuild_cache`)
-- CLI with `--file`, `--jobs`, `--clean`, `--dry-run`, `--verbose` flags
-- `$VAR` and `${VAR}` variable expansion in commands
-- 35 tests covering diamond deps, 100+ rule graphs, incremental rebuilds, and failure propagation

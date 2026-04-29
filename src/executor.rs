@@ -198,7 +198,8 @@ pub fn execute(
     }
 
     if !failed.is_empty() {
-        let failed_list: Vec<&String> = failed.iter().collect();
+        let mut failed_list: Vec<&String> = failed.iter().collect();
+        failed_list.sort();
         eprintln!(
             "\nBuild FAILED. {} rule(s) failed: {:?}",
             failed.len(),

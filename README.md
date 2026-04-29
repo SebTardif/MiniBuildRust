@@ -155,7 +155,7 @@ src/
 
 ## Tests
 
-The project includes 35 tests covering:
+The project includes 36 tests covering:
 
 - **Diamond dependencies** — A depends on B and C, both depend on D
 - **Large graphs** — 120-rule chains and 110-leaf fan-out graphs to stress the scheduler
@@ -168,7 +168,7 @@ The project includes 35 tests covering:
 - **CLI parsing** — flags, short forms, edge cases
 
 ```bash
-cargo test
+make test
 ```
 
 ## Local CI
