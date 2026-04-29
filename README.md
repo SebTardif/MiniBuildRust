@@ -171,6 +171,22 @@ The project includes 35 tests covering:
 cargo test
 ```
 
+## Local CI
+
+Every CI job can be reproduced locally via `make`. Run the full suite before committing to catch issues before they hit GitHub:
+
+```bash
+make ci           # Full suite: fmt, clippy, test, docs, lockfile, deny
+make quick        # Fast pre-commit: fmt + clippy + test
+make fmt          # Auto-format code
+make fix          # Auto-fix clippy warnings + format
+make deny         # Security/license checks (requires cargo-deny)
+make msrv         # Check MSRV compilation (requires rustup)
+make help         # Show all targets
+```
+
+The `make ci` target mirrors every GitHub Actions job. If it passes locally, CI will pass remotely.
+
 ## License
 
 MIT
