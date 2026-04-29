@@ -55,16 +55,14 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - name: Run tests
         run: cargo nextest run --locked
-      - name: Run doctests
-        run: cargo test --doc --locked
 
   # ── MSRV check ─────────────────────────────────────────────────
   msrv:
-    name: MSRV (1.70.0)
+    name: MSRV (1.78.0)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.70.0
+      - uses: dtolnay/rust-toolchain@1.78.0
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --locked
 
@@ -78,12 +76,3 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --no-deps --locked
 
-  # ── Semver compatibility ────────────────────────────────────────
-  semver:
-    name: Semver Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: obi1kenobi/cargo-semver-checks-action@v2

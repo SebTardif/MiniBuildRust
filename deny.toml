@@ -2,10 +2,9 @@
 all-features = true
 
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "warn"
-notice = "warn"
+# Scope for unmaintained crate warnings (all | workspace | transitive | none)
+unmaintained = "workspace"
+ignore = []
 
 [licenses]
 unlicensed = "deny"

@@ -243,27 +243,27 @@ rule d
         let output_file = dir.join("output.txt");
         fs::write(&input_file, "hello").unwrap();
 
-        let input = format!(
-            "rule build\n  inputs {inp}\n  outputs {out}\n  run cp {inp} {out}\n",
-            inp = input_file.display(),
-            out = output_file.display(),
-        );
+        // Use forward-slash paths for shell compatibility on all platforms
+        let inp = input_file.to_string_lossy().replace('\\', "/");
+        let out = output_file.to_string_lossy().replace('\\', "/");
+
+        let input =
+            format!("rule build\n  inputs {inp}\n  outputs {out}\n  run cp \"{inp}\" \"{out}\"\n",);
 
         let cache = Arc::new(Mutex::new(BuildCache::new()));
 
-        // First build — should execute
+        // First build
         let results1 = full_build(&input, "build", 1, &cache);
         assert!(matches!(&results1[0], RuleResult::Success(_)));
         assert!(output_file.exists());
 
-        // Second build — should skip (inputs unchanged)
+        // Second build should skip (inputs unchanged)
         let results2 = full_build(&input, "build", 1, &cache);
         assert!(matches!(&results2[0], RuleResult::Skipped(_)));
 
-        // Modify input — should rebuild
+        // Modify input then rebuild
         std::thread::sleep(std::time::Duration::from_millis(50));
         fs::write(&input_file, "changed").unwrap();
-        // Invalidate cache since input changed
         cache.lock().unwrap().invalidate("build");
 
         let results3 = full_build(&input, "build", 1, &cache);
