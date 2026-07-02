@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -12,10 +17,15 @@ jobs:
   release-please:
     name: Release Please
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: googleapis/release-please-action@v4
         id: release
         with:
@@ -27,6 +37,7 @@ jobs:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +55,14 @@ jobs:
             os: windows-latest
             artifact: minibuild.exe
     steps:
+      - name: Harden runner
+        if: runner.os == 'Linux'
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}

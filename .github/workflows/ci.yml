@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  merge_group:
   schedule:
     # Daily at 04:17 UTC — catches upstream toolchain/ecosystem breakage
     - cron: "17 4 * * *"
@@ -26,8 +27,15 @@ jobs:
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -36,8 +44,15 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -48,12 +63,20 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
+      - name: Harden runner
+        if: runner.os == 'Linux'
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install make (Windows)
@@ -65,8 +88,15 @@ jobs:
   msrv:
     name: MSRV (1.78.0)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.78.0"
@@ -77,8 +107,15 @@ jobs:
   docs:
     name: Documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: make docs
@@ -87,7 +124,14 @@ jobs:
   lockfile:
     name: Cargo.lock up-to-date
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - run: make lockfile

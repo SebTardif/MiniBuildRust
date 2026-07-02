@@ -19,6 +19,10 @@ on:
     - cron: "37 6 * * *"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -27,6 +31,7 @@ jobs:
   cargo-deny:
     name: cargo-deny (${{ matrix.checks }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -36,7 +41,13 @@ jobs:
     # New upstream advisories should not block PRs
     continue-on-error: ${{ matrix.checks == 'advisories' }}
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
@@ -50,6 +61,13 @@ jobs:
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@002fdce3c6a235733a90a27c80493a3241e56863 # v2.12.1
+        with:
+          egress-policy: audit
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions-rust-lang/audit@v1
