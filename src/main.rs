@@ -102,10 +102,14 @@ fn main() {
     }
 
     // Exit with failure if any rule failed
-    let has_failure = results
+    let failures: Vec<_> = results
         .iter()
-        .any(|r| matches!(r, executor::RuleResult::Failed(_, _)));
-    if has_failure {
+        .filter_map(|r| match r {
+            executor::RuleResult::Failed(name, reason) => Some((name, reason)),
+            _ => None,
+        })
+        .collect();
+    if !failures.is_empty() {
         process::exit(1);
     }
 }
