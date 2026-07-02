@@ -340,6 +340,37 @@ rule link
     }
 
     #[test]
+    fn test_expand_vars_double_dollar() {
+        let mut env = HashMap::new();
+        env.insert("X".to_string(), "val".to_string());
+        // First $ sees next char $ (not alphanumeric), passes through as literal $.
+        // Second $ sees X, expands to "val". Result: "$val"
+        let result = expand_vars("$$X", &env);
+        assert_eq!(result, "$val");
+    }
+
+    #[test]
+    fn test_parse_unicode_rule_name() {
+        let input = "rule caf\u{00e9}\n  run echo hello\n";
+        let bf = parse(input).unwrap();
+        assert!(bf.rules.contains_key("caf\u{00e9}"));
+    }
+
+    #[test]
+    fn test_parse_many_deps() {
+        let mut input = String::from("rule top\n  deps");
+        for i in 0..50 {
+            input.push_str(&format!(" dep{i}"));
+        }
+        input.push('\n');
+        for i in 0..50 {
+            input.push_str(&format!("rule dep{i}\n  run echo {i}\n"));
+        }
+        let bf = parse(&input).unwrap();
+        assert_eq!(bf.rules["top"].deps.len(), 50);
+    }
+
+    #[test]
     fn test_parse_env_missing_equals() {
         let input = "env BROKEN\nrule a\n  run echo a\n";
         assert!(parse(input).is_err());
