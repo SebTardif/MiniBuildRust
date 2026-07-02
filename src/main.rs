@@ -12,7 +12,11 @@ use std::sync::{Arc, Mutex};
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cli = match cli::parse_args(&args) {
-        Ok(c) => c,
+        Ok(cli::ParseOutcome::Run(c)) => c,
+        Ok(cli::ParseOutcome::Info(msg)) => {
+            println!("{}", msg);
+            return;
+        }
         Err(msg) => {
             eprintln!("{}", msg);
             process::exit(1);
