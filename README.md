@@ -156,7 +156,7 @@ src/
 
 ## Tests
 
-The project includes 53 tests covering:
+The project includes 56 tests covering:
 
 - **Diamond dependencies** — A depends on B and C, both depend on D
 - **Large graphs** — 120-rule chains and 110-leaf fan-out graphs to stress the scheduler
