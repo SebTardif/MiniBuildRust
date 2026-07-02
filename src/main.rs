@@ -12,7 +12,11 @@ use std::sync::{Arc, Mutex};
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cli = match cli::parse_args(&args) {
-        Ok(c) => c,
+        Ok(cli::ParseOutcome::Run(c)) => c,
+        Ok(cli::ParseOutcome::Info(msg)) => {
+            println!("{}", msg);
+            return;
+        }
         Err(msg) => {
             eprintln!("{}", msg);
             process::exit(1);
@@ -102,10 +106,14 @@ fn main() {
     }
 
     // Exit with failure if any rule failed
-    let has_failure = results
+    let failures: Vec<_> = results
         .iter()
-        .any(|r| matches!(r, executor::RuleResult::Failed(_, _)));
-    if has_failure {
+        .filter_map(|r| match r {
+            executor::RuleResult::Failed(name, reason) => Some((name, reason)),
+            _ => None,
+        })
+        .collect();
+    if !failures.is_empty() {
         process::exit(1);
     }
 }
