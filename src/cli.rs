@@ -137,6 +137,54 @@ mod tests {
     }
 
     #[test]
+    fn test_help_flag() {
+        let args: Vec<String> = vec!["--help"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("Usage:"));
+    }
+
+    #[test]
+    fn test_help_short_flag() {
+        let args: Vec<String> = vec!["-h"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("Usage:"));
+    }
+
+    #[test]
+    fn test_unknown_flag() {
+        let args: Vec<String> = vec!["--unknown"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("unknown flag"));
+    }
+
+    #[test]
+    fn test_file_missing_value() {
+        let args: Vec<String> = vec!["--file"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("requires a value"));
+    }
+
+    #[test]
+    fn test_jobs_invalid_value() {
+        let args: Vec<String> = vec!["--jobs", "abc"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("invalid --jobs value"));
+    }
+
+    #[test]
+    fn test_duplicate_target() {
+        let args: Vec<String> = vec!["target1", "target2"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("unexpected argument"));
+    }
+
+    #[test]
     fn test_short_flags() {
         let args: Vec<String> = vec!["-f", "my.build", "-j", "2", "-n", "-v"]
             .into_iter()
