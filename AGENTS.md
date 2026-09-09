@@ -26,6 +26,7 @@ src/
   graph.rs      DAG construction, cycle detection, topological sort
   executor.rs   Parallel scheduler with thread worker pool
   cache.rs      Timestamp-based incremental build cache
+  suggest.rs    Did-you-mean helper for unknown flags, keywords, and targets
 ```
 
 ## Conventions

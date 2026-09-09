@@ -72,7 +72,28 @@ pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
                 return Ok(ParseOutcome::Info(usage()));
             }
             s if s.starts_with('-') => {
-                return Err(format!("unknown flag: {s}"));
+                if is_glued_jobs(s) {
+                    return Err("use `-j 4` or `--jobs 4`".to_string());
+                }
+                const FLAGS: &[&str] = &[
+                    "--file",
+                    "-f",
+                    "--jobs",
+                    "-j",
+                    "--clean",
+                    "--dry-run",
+                    "-n",
+                    "--verbose",
+                    "-v",
+                    "--version",
+                    "-V",
+                    "--help",
+                    "-h",
+                ];
+                return Err(match crate::suggest::closest(s, FLAGS) {
+                    Some(hint) => format!("unknown flag: {s} (did you mean `{hint}`?)"),
+                    None => format!("unknown flag: {s}"),
+                });
             }
             _ => {
                 if cli.target.is_some() {
@@ -84,6 +105,20 @@ pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
         i += 1;
     }
     Ok(ParseOutcome::Run(cli))
+}
+
+fn is_glued_jobs(s: &str) -> bool {
+    if let Some(rest) = s.strip_prefix("-j") {
+        if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+            return true;
+        }
+    }
+    if let Some(rest) = s.strip_prefix("--jobs=") {
+        if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+            return true;
+        }
+    }
+    false
 }
 
 fn usage() -> String {
@@ -182,6 +217,28 @@ mod tests {
         let args: Vec<String> = vec!["--unknown"].into_iter().map(String::from).collect();
         let err = parse_args(&args).unwrap_err();
         assert!(err.contains("unknown flag"));
+    }
+
+    #[test]
+    fn test_unknown_flag_suggests_jobs() {
+        let args: Vec<String> = vec!["--job"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("unknown flag"), "got: {err}");
+        assert!(err.contains("did you mean `--jobs`"), "got: {err}");
+    }
+
+    #[test]
+    fn test_glued_short_jobs() {
+        let args: Vec<String> = vec!["-j4"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("use `-j 4` or `--jobs 4`"), "got: {err}");
+    }
+
+    #[test]
+    fn test_glued_long_jobs() {
+        let args: Vec<String> = vec!["--jobs=4"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("use `-j 4` or `--jobs 4`"), "got: {err}");
     }
 
     #[test]

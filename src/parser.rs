@@ -96,9 +96,14 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
             } else if let Some(rest) = line.strip_prefix("default ") {
                 default_target = Some(rest.trim().to_string());
             } else {
-                return Err(format!(
-                    "line {line_num}: unexpected top-level directive: {line}"
-                ));
+                let token = line.split_whitespace().next().unwrap_or(line);
+                const TOP: &[&str] = &["env", "default", "rule"];
+                return Err(match crate::suggest::closest(token, TOP) {
+                    Some(hint) => format!(
+                        "line {line_num}: unexpected top-level directive: {line} (did you mean `{hint}`?)"
+                    ),
+                    None => format!("line {line_num}: unexpected top-level directive: {line}"),
+                });
             }
         } else {
             // indented line — belongs to current rule
@@ -122,7 +127,22 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
             } else if let Some(rest) = line.strip_prefix("phony ") {
                 rule.phony = rest.trim().eq_ignore_ascii_case("true");
             } else {
-                return Err(format!("line {line_num}: unknown rule directive: {line}"));
+                let token = line.split_whitespace().next().unwrap_or(line);
+                const INNER: &[&str] = &[
+                    "deps",
+                    "inputs",
+                    "outputs",
+                    "env",
+                    "run",
+                    "description",
+                    "phony",
+                ];
+                return Err(match crate::suggest::closest(token, INNER) {
+                    Some(hint) => format!(
+                        "line {line_num}: unknown rule directive: {line} (did you mean `{hint}`?)"
+                    ),
+                    None => format!("line {line_num}: unknown rule directive: {line}"),
+                });
             }
         }
     }
@@ -321,10 +341,24 @@ rule link
     }
 
     #[test]
+    fn test_parse_unknown_top_level_suggests() {
+        let err = parse("rul hello\n").unwrap_err();
+        assert!(err.contains("unexpected top-level directive"), "got: {err}");
+        assert!(err.contains("did you mean `rule`"), "got: {err}");
+    }
+
+    #[test]
     fn test_parse_unknown_rule_directive() {
         let input = "rule a\n  badkey value\n";
         let err = parse(input).unwrap_err();
         assert!(err.contains("unknown rule directive"));
+    }
+
+    #[test]
+    fn test_parse_unknown_rule_suggests() {
+        let err = parse("rule a\n  dep b\n").unwrap_err();
+        assert!(err.contains("unknown rule directive"), "got: {err}");
+        assert!(err.contains("did you mean `deps`"), "got: {err}");
     }
 
     #[test]

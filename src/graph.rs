@@ -27,10 +27,14 @@ pub fn build_graph(bf: &BuildFile) -> Result<BuildGraph, String> {
 
         for dep in &rule.deps {
             if !rule_names.contains(dep.as_str()) {
-                return Err(format!(
-                    "rule '{}' depends on '{}', which is not defined",
-                    name, dep
-                ));
+                let names: Vec<&str> = bf.rules.keys().map(String::as_str).collect();
+                return Err(match crate::suggest::closest(dep, &names) {
+                    Some(hint) => format!(
+                        "rule '{}' depends on '{}', which is not defined (did you mean `{hint}`?)",
+                        name, dep
+                    ),
+                    None => format!("rule '{}' depends on '{}', which is not defined", name, dep),
+                });
             }
             deps.entry(name.clone()).or_default().push(dep.clone());
             rdeps.entry(dep.clone()).or_default().push(name.clone());
@@ -114,7 +118,11 @@ fn detect_cycle(graph: &BuildGraph) -> Result<(), String> {
 /// following the dependency edges transitively.
 pub fn reachable_from(target: &str, graph: &BuildGraph) -> Result<HashSet<String>, String> {
     if !graph.deps.contains_key(target) {
-        return Err(format!("target '{}' is not defined", target));
+        let names: Vec<&str> = graph.nodes.iter().map(String::as_str).collect();
+        return Err(match crate::suggest::closest(target, &names) {
+            Some(hint) => format!("target '{target}' is not defined (did you mean `{hint}`?)"),
+            None => format!("target '{target}' is not defined"),
+        });
     }
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
@@ -236,6 +244,15 @@ mod tests {
     }
 
     #[test]
+    fn test_missing_dependency_suggests() {
+        let bf =
+            make_buildfile("rule greet\n  run echo hi\nrule all\n  deps greett\n  run echo all\n");
+        let err = build_graph(&bf).unwrap_err();
+        assert!(err.contains("not defined"), "got: {err}");
+        assert!(err.contains("did you mean `greet`"), "got: {err}");
+    }
+
+    #[test]
     fn test_diamond_topo_sort() {
         let bf = make_buildfile(
             "\
@@ -288,5 +305,14 @@ rule e\n  run echo e\n",
         let bf = make_buildfile("rule a\n  run echo a\n");
         let g = build_graph(&bf).unwrap();
         assert!(reachable_from("ghost", &g).is_err());
+    }
+
+    #[test]
+    fn test_reachable_from_unknown_suggests() {
+        let bf = make_buildfile("rule greet\n  run echo hi\n");
+        let g = build_graph(&bf).unwrap();
+        let err = reachable_from("greeet", &g).unwrap_err();
+        assert!(err.contains("not defined"), "got: {err}");
+        assert!(err.contains("did you mean `greet`"), "got: {err}");
     }
 }

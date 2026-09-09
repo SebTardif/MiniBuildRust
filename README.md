@@ -152,11 +152,12 @@ src/
   graph.rs      DAG construction, cycle detection (3-color DFS), topological sort (Kahn's)
   executor.rs   Parallel scheduler with thread worker pool and mpsc coordination
   cache.rs      Timestamp-based incremental build cache with serialization
+  suggest.rs    Did-you-mean helper for unknown flags, keywords, and targets
 ```
 
 ## Tests
 
-The project includes 58 tests covering:
+The project includes 72 tests covering:
 
 - **Diamond dependencies** — A depends on B and C, both depend on D
 - **Large graphs** — 120-rule chains and 110-leaf fan-out graphs to stress the scheduler

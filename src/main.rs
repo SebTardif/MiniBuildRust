@@ -3,6 +3,7 @@ mod cli;
 mod executor;
 mod graph;
 mod parser;
+mod suggest;
 
 use std::fs;
 use std::path::Path;
@@ -56,7 +57,8 @@ fn main() {
         .clone()
         .or_else(|| bf.default_target.clone())
         .unwrap_or_else(|| {
-            eprintln!("error: no target specified and no default target in build file");
+            let names: Vec<&str> = bf.rules.keys().map(String::as_str).collect();
+            eprintln!("{}", missing_target_message(&names));
             process::exit(1);
         });
 
@@ -120,6 +122,18 @@ fn main() {
     if !failures.is_empty() {
         process::exit(1);
     }
+}
+
+fn missing_target_message(rule_names: &[&str]) -> String {
+    if rule_names.is_empty() {
+        return "error: no target specified and no default target in build file".to_string();
+    }
+    let mut names: Vec<&str> = rule_names.to_vec();
+    names.sort_unstable();
+    format!(
+        "error: no target specified and no default target in build file (available: {})",
+        names.join(", ")
+    )
 }
 
 #[cfg(test)]
@@ -406,5 +420,19 @@ rule bad_branch
         assert!(matches!(&results4[0], RuleResult::Skipped(_)));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_missing_target_message_lists_rules() {
+        let msg = super::missing_target_message(&["compile", "all"]);
+        assert!(msg.contains("no target specified"), "got: {msg}");
+        assert!(msg.contains("available: all, compile"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_missing_target_message_empty() {
+        let msg = super::missing_target_message(&[]);
+        assert!(msg.contains("no target specified"), "got: {msg}");
+        assert!(!msg.contains("available:"), "got: {msg}");
     }
 }
