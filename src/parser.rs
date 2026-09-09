@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// A single build rule parsed from the Buildfile.
 #[derive(Debug, Clone)]
@@ -40,6 +42,7 @@ pub struct BuildFile {
 ///
 /// ```text
 /// # comment
+/// include common.mb
 /// env CC = gcc
 /// env CFLAGS = -Wall -O2
 ///
@@ -58,10 +61,79 @@ pub struct BuildFile {
 ///   run $CC $CFLAGS $EXTRA -c src/main.c -o build/main.o
 ///   run $CC $CFLAGS $EXTRA -c src/util.c -o build/util.o
 /// ```
+///
+/// `include` paths are resolved relative to the including file. `parse`
+/// treats the base directory as `.` (the current working directory).
+///
+/// The binary loads files via [`parse_file`]; this string entry point is
+/// the API for tests and in-memory Buildfiles.
+#[allow(dead_code)]
 pub fn parse(input: &str) -> Result<BuildFile, String> {
+    parse_from(input, Path::new("."), Vec::new())
+}
+
+/// Parse a Buildfile from disk so `include` paths resolve relative to it.
+pub fn parse_file(path: &Path) -> Result<BuildFile, String> {
+    let content =
+        fs::read_to_string(path).map_err(|e| format!("cannot read '{}': {}", path.display(), e))?;
+    let base = parent_dir(path);
+    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let stack = vec![IncludeFrame {
+        display: path_display(path),
+        canonical,
+    }];
+    parse_from(&content, base, stack)
+}
+
+#[derive(Clone)]
+struct IncludeFrame {
+    display: String,
+    canonical: PathBuf,
+}
+
+fn parent_dir(path: &Path) -> &Path {
+    match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    }
+}
+
+fn path_display(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+fn parse_from(input: &str, base_dir: &Path, stack: Vec<IncludeFrame>) -> Result<BuildFile, String> {
     let mut rules: HashMap<String, Rule> = HashMap::new();
     let mut global_env: HashMap<String, String> = HashMap::new();
     let mut default_target: Option<String> = None;
+    parse_into(
+        input,
+        base_dir,
+        &stack,
+        &mut rules,
+        &mut global_env,
+        &mut default_target,
+    )?;
+    if rules.is_empty() {
+        return Err("Buildfile contains no rules".to_string());
+    }
+    Ok(BuildFile {
+        rules,
+        global_env,
+        default_target,
+    })
+}
+
+fn parse_into(
+    input: &str,
+    base_dir: &Path,
+    stack: &[IncludeFrame],
+    rules: &mut HashMap<String, Rule>,
+    global_env: &mut HashMap<String, String>,
+    default_target: &mut Option<String>,
+) -> Result<(), String> {
     let mut current_rule: Option<Rule> = None;
     let mut last_line_num = 0;
 
@@ -79,7 +151,7 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
         if !raw_line.starts_with(' ') && !raw_line.starts_with('\t') {
             // finalize previous rule
             if let Some(r) = current_rule.take() {
-                insert_rule(&mut rules, r, line_num)?;
+                insert_rule(rules, r, line_num)?;
             }
 
             if line == "rule" {
@@ -94,10 +166,18 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
                 let (k, v) = parse_kv(rest, line_num)?;
                 global_env.insert(k, v);
             } else if let Some(rest) = line.strip_prefix("default ") {
-                default_target = Some(rest.trim().to_string());
+                *default_target = Some(rest.trim().to_string());
+            } else if line == "include" {
+                return Err(format!("line {line_num}: include has no path"));
+            } else if let Some(rest) = line.strip_prefix("include ") {
+                let spec = rest.trim();
+                if spec.is_empty() {
+                    return Err(format!("line {line_num}: include has no path"));
+                }
+                include_file(spec, base_dir, stack, rules, global_env, default_target)?;
             } else {
                 let token = line.split_whitespace().next().unwrap_or(line);
-                const TOP: &[&str] = &["env", "default", "rule"];
+                const TOP: &[&str] = &["env", "default", "rule", "include"];
                 return Err(match crate::suggest::closest(token, TOP) {
                     Some(hint) => format!(
                         "line {line_num}: unexpected top-level directive: {line} (did you mean `{hint}`?)"
@@ -149,18 +229,44 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
 
     // finalize last rule
     if let Some(r) = current_rule.take() {
-        insert_rule(&mut rules, r, last_line_num)?;
+        insert_rule(rules, r, last_line_num)?;
     }
 
-    if rules.is_empty() {
-        return Err("Buildfile contains no rules".to_string());
+    Ok(())
+}
+
+fn include_file(
+    spec: &str,
+    base_dir: &Path,
+    stack: &[IncludeFrame],
+    rules: &mut HashMap<String, Rule>,
+    global_env: &mut HashMap<String, String>,
+    default_target: &mut Option<String>,
+) -> Result<(), String> {
+    let path = base_dir.join(spec);
+    let content = fs::read_to_string(&path).map_err(|e| format!("cannot include '{spec}': {e}"))?;
+    let canonical = fs::canonicalize(&path).map_err(|e| format!("cannot include '{spec}': {e}"))?;
+
+    if let Some(pos) = stack.iter().position(|f| f.canonical == canonical) {
+        let mut parts: Vec<&str> = stack[pos..].iter().map(|f| f.display.as_str()).collect();
+        parts.push(spec);
+        return Err(format!("include cycle: {}", parts.join(" -> ")));
     }
 
-    Ok(BuildFile {
+    let child_base = parent_dir(&path);
+    let mut child_stack = stack.to_vec();
+    child_stack.push(IncludeFrame {
+        display: spec.to_string(),
+        canonical,
+    });
+    parse_into(
+        &content,
+        child_base,
+        &child_stack,
         rules,
         global_env,
         default_target,
-    })
+    )
 }
 
 fn insert_rule(
@@ -417,5 +523,77 @@ rule link
     fn test_parse_env_missing_equals() {
         let input = "env BROKEN\nrule a\n  run echo a\n";
         assert!(parse(input).is_err());
+    }
+
+    fn write_temp_build(dir_name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(dir_name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        for (name, body) in files {
+            fs::write(dir.join(name), body).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn test_include_sibling_rule() {
+        let dir = write_temp_build(
+            "minibuild_test_include_sibling",
+            &[
+                ("child.mb", "rule child\n  run echo child\n"),
+                (
+                    "parent.mb",
+                    "include child.mb\nrule parent\n  deps child\n  run echo parent\n",
+                ),
+            ],
+        );
+        let bf = parse_file(&dir.join("parent.mb")).unwrap();
+        assert!(bf.rules.contains_key("child"));
+        assert!(bf.rules.contains_key("parent"));
+        assert_eq!(bf.rules["parent"].deps, vec!["child"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_cycle() {
+        let dir = write_temp_build(
+            "minibuild_test_include_cycle",
+            &[
+                ("a", "include b\nrule ra\n  run echo a\n"),
+                ("b", "include a\nrule rb\n  run echo b\n"),
+            ],
+        );
+        let err = parse_file(&dir.join("a")).unwrap_err();
+        assert!(err.contains("include cycle: a -> b -> a"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_missing_file() {
+        let dir = write_temp_build(
+            "minibuild_test_include_missing",
+            &[("parent.mb", "include missing.mb\nrule a\n  run echo a\n")],
+        );
+        let err = parse_file(&dir.join("parent.mb")).unwrap_err();
+        assert!(err.contains("cannot include 'missing.mb'"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_duplicate_rule() {
+        let dir = write_temp_build(
+            "minibuild_test_include_duplicate",
+            &[
+                ("child.mb", "rule shared\n  run echo child\n"),
+                (
+                    "parent.mb",
+                    "include child.mb\nrule shared\n  run echo parent\n",
+                ),
+            ],
+        );
+        let err = parse_file(&dir.join("parent.mb")).unwrap_err();
+        assert!(err.contains("duplicate rule"), "got: {err}");
+        assert!(err.contains("shared"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

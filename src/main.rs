@@ -5,7 +5,6 @@ mod graph;
 mod parser;
 mod suggest;
 
-use std::fs;
 use std::path::Path;
 use std::process;
 use std::sync::{Arc, Mutex};
@@ -30,18 +29,13 @@ fn main() {
         eprintln!("Cache cleaned.");
     }
 
-    // Read build file
-    let content = match fs::read_to_string(&cli.file) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("error: cannot read '{}': {}", cli.file, e);
+    // Parse from disk so include paths resolve relative to the file.
+    let bf = match parser::parse_file(Path::new(&cli.file)) {
+        Ok(bf) => bf,
+        Err(e) if e.starts_with("cannot read ") => {
+            eprintln!("error: {}", e);
             process::exit(1);
         }
-    };
-
-    // Parse
-    let bf = match parser::parse(&content) {
-        Ok(bf) => bf,
         Err(e) => {
             eprintln!("parse error: {}", e);
             process::exit(1);

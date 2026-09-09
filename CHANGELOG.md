@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * Did-you-mean suggestions for unknown flags, directives, and targets
+* `include <path>` loads another Buildfile relative to the including file
 
 ### Changed
 

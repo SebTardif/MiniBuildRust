@@ -77,6 +77,9 @@ Buildfiles use a simple indentation-based DSL:
 env CC = gcc
 env CFLAGS = -Wall -O2
 
+# Pull in rules from another file (path is relative to this file)
+include common.mb
+
 # Default target when none is specified on the command line
 default all
 
@@ -110,6 +113,13 @@ rule link
 | `env KEY = VALUE` | Set a global environment variable |
 | `default <target>` | Default target when none given on CLI |
 | `rule <name>` | Begin a rule block |
+| `include <path>` | Load another Buildfile relative to this file |
+
+```
+include lib.mb
+rule app
+  deps lib
+```
 
 **Inside a rule block** (indented):
 
@@ -161,7 +171,7 @@ src/
 
 ## Tests
 
-The project includes 73 tests covering:
+The project includes 77 tests covering:
 
 - **Diamond dependencies** — A depends on B and C, both depend on D
 - **Large graphs** — 120-rule chains and 110-leaf fan-out graphs to stress the scheduler
