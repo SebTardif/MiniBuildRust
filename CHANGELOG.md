@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * `--clean` without a TARGET rebuilds the default target
 * Missing cache input and output paths are treated as stale
+* Include errors report the include site and path
 
 ## [0.2.0](https://github.com/SebTardif/MiniBuildRust/compare/v0.1.0...v0.2.0) (2026-04-29)
 

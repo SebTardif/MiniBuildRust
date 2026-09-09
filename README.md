@@ -81,9 +81,6 @@ Buildfiles use a simple indentation-based DSL:
 env CC = gcc
 env CFLAGS = -Wall -O2
 
-# Pull in rules from another file (path is relative to this file)
-include common.mb
-
 # Default target when none is specified on the command line
 default all
 
@@ -124,6 +121,8 @@ include lib.mb
 rule app
   deps lib
 ```
+
+A missing include fails as `cannot include '<path>'` and names the include line and including file. A cycle fails as `include cycle: a -> b -> a`. Unknown flags, directives, and targets may append `(did you mean 'name'?)`.
 
 **Inside a rule block** (indented):
 
@@ -175,7 +174,7 @@ src/
 
 ## Tests
 
-The project includes 81 tests covering:
+The project includes 91 tests covering:
 
 - **Diamond dependencies** — A depends on B and C, both depend on D
 - **Large graphs** — 120-rule chains and 110-leaf fan-out graphs to stress the scheduler
