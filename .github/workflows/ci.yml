@@ -12,7 +12,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 permissions:
   contents: read
@@ -64,6 +64,7 @@ jobs:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    if: github.event_name != 'push' || matrix.os == 'ubuntu-latest'
     strategy:
       fail-fast: false
       matrix:
@@ -79,10 +80,12 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install make (Windows)
+      - name: Test
+        if: runner.os != 'Windows'
+        run: make test
+      - name: Test
         if: runner.os == 'Windows'
-        run: choco install make -y
-      - run: make test
+        run: cargo test --locked
 
   # ── MSRV check ─────────────────────────────────────────────────
   msrv:
