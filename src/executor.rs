@@ -124,7 +124,10 @@ pub fn execute(
             if !rule.phony && !rule.inputs.is_empty() {
                 let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
                 if cache_guard.is_up_to_date(&name, &rule.inputs, &rule.outputs) {
-                    if opts.verbose {
+                    if opts.dry_run {
+                        // Dry-run must stay visible on a second pass, not go silent.
+                        eprintln!("{}", dry_run_up_to_date_line(&name));
+                    } else if opts.verbose {
                         eprintln!("[UP-TO-DATE] {}", name);
                     }
                     completed.insert(name.clone());
@@ -222,6 +225,11 @@ pub fn execute(
     }
 
     results
+}
+
+/// Line printed when dry-run skips a cached, up-to-date rule.
+fn dry_run_up_to_date_line(name: &str) -> String {
+    format!("[DRY-RUN] skip {name} (up to date)")
 }
 
 /// When a rule completes (success or failure), decrement in-degree of its
@@ -412,5 +420,51 @@ env GREETING = hello
 rule test\n  env NAME = world\n  run test \"$GREETING\" = hello -a \"$NAME\" = world\n";
         let results = run_build(input, Some("test"), 1);
         assert!(matches!(&results[0], RuleResult::Success(n) if n == "test"));
+    }
+
+    /// After a successful cached build, dry-run must still report the skip.
+    #[test]
+    fn test_dry_run_reports_up_to_date_skips() {
+        let dir = std::env::temp_dir().join("minibuild_test_dry_run_skip");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let input_file = dir.join("input.txt");
+        let output_file = dir.join("output.txt");
+        std::fs::write(&input_file, "hello").unwrap();
+
+        let inp = input_file.to_string_lossy().replace('\\', "/");
+        let out = output_file.to_string_lossy().replace('\\', "/");
+        let input =
+            format!("rule build\n  inputs {inp}\n  outputs {out}\n  run cp \"{inp}\" \"{out}\"\n");
+
+        let bf = parser::parse(&input).unwrap();
+        let graph = build_graph(&bf).unwrap();
+        let reachable = crate::graph::reachable_from("build", &graph).unwrap();
+        let order = crate::graph::topological_sort(&graph, &reachable);
+        let cache = Arc::new(Mutex::new(BuildCache::new()));
+
+        let run_opts = ExecOptions {
+            jobs: 1,
+            dry_run: false,
+            verbose: false,
+        };
+        let first = execute(&bf, &graph, &order, &cache, &run_opts);
+        assert!(matches!(&first[0], RuleResult::Success(n) if n == "build"));
+
+        let dry_opts = ExecOptions {
+            jobs: 1,
+            dry_run: true,
+            verbose: false,
+        };
+        let second = execute(&bf, &graph, &order, &cache, &dry_opts);
+        assert!(matches!(&second[0], RuleResult::Skipped(n) if n == "build"));
+        // execute() prints this via eprintln; the formatter is the contract.
+        assert_eq!(
+            dry_run_up_to_date_line("build"),
+            "[DRY-RUN] skip build (up to date)"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

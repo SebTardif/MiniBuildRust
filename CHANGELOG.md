@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+* Did-you-mean suggestions for unknown flags, directives, and targets
+
+### Changed
+
+* `--help` and `--version` print to stdout and exit 0
+* `--help` wording matches the README CLI table
+* `--dry-run` reports up-to-date skips instead of staying silent
+
+### Fixed
+
+* `--clean` without a TARGET rebuilds the default target
+* Missing cache input and output paths are treated as stale
+
 ## [0.2.0](https://github.com/SebTardif/MiniBuildRust/compare/v0.1.0...v0.2.0) (2026-04-29)
 
 

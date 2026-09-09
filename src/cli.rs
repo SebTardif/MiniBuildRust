@@ -124,13 +124,13 @@ fn is_glued_jobs(s: &str) -> bool {
 fn usage() -> String {
     "Usage: minibuild [OPTIONS] [TARGET]\n\n\
      Options:\n  \
-       --file, -f <FILE>   Build file (default: Buildfile)\n  \
-       --jobs, -j <N>      Parallel jobs (default: num CPUs)\n  \
-       --clean             Remove cache and rebuild all\n  \
-       --dry-run, -n       Print what would be executed\n  \
-       --verbose, -v       Verbose output\n  \
+       --file, -f <FILE>   Build file path (default: Buildfile)\n  \
+       --jobs, -j <N>      Max parallel jobs (default: number of CPU cores)\n  \
+       --clean             Remove the build cache and rebuild everything\n  \
+       --dry-run, -n       Print what would be executed without running anything\n  \
+       --verbose, -v       Show detailed execution info\n  \
        --version, -V       Show version\n  \
-       --help, -h          Show this help"
+       --help, -h          Show help"
         .to_string()
 }
 
@@ -198,7 +198,22 @@ mod tests {
     fn test_help_flag() {
         let args: Vec<String> = vec!["--help"].into_iter().map(String::from).collect();
         match parse_args(&args).unwrap() {
-            ParseOutcome::Info(msg) => assert!(msg.contains("Usage:")),
+            ParseOutcome::Info(msg) => {
+                assert!(msg.contains("Usage: minibuild [OPTIONS] [TARGET]"));
+                // README.md CLI Usage table is the spec for these strings.
+                assert!(msg.contains("--file, -f <FILE>   Build file path (default: Buildfile)"));
+                assert!(msg.contains(
+                    "--jobs, -j <N>      Max parallel jobs (default: number of CPU cores)"
+                ));
+                assert!(msg
+                    .contains("--clean             Remove the build cache and rebuild everything"));
+                assert!(msg.contains(
+                    "--dry-run, -n       Print what would be executed without running anything"
+                ));
+                assert!(msg.contains("--verbose, -v       Show detailed execution info"));
+                assert!(msg.contains("--version, -V       Show version"));
+                assert!(msg.contains("--help, -h          Show help"));
+            }
             other => panic!("expected Info, got {other:?}"),
         }
     }
