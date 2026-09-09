@@ -29,6 +29,15 @@ pub struct ExecOptions {
     pub jobs: usize,
     pub dry_run: bool,
     pub verbose: bool,
+    pub json: bool,
+}
+
+/// One rule in a `--dry-run --json` plan.
+#[derive(Debug, Clone)]
+struct DryRunItem {
+    name: String,
+    commands: Vec<String>,
+    skipped: bool,
 }
 
 /// Execute the build plan.
@@ -59,6 +68,7 @@ pub fn execute(
     }
 
     let mut results: Vec<RuleResult> = Vec::new();
+    let mut json_items: Vec<DryRunItem> = Vec::new();
     let mut completed: HashSet<String> = HashSet::new();
     let mut failed: HashSet<String> = HashSet::new();
     let mut in_flight: HashSet<String> = HashSet::new();
@@ -120,27 +130,35 @@ pub fn execute(
             let rule = &bf.rules[&name];
             let env = &merged_envs[&name];
 
-            // Incremental build check
-            if !rule.phony && !rule.inputs.is_empty() {
+            let up_to_date = !rule.phony && !rule.inputs.is_empty() && {
                 let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
-                if cache_guard.is_up_to_date(&name, &rule.inputs, &rule.outputs) {
-                    if opts.dry_run {
-                        // Dry-run must stay visible on a second pass, not go silent.
-                        eprintln!("{}", dry_run_up_to_date_line(&name));
-                    } else if opts.verbose {
-                        eprintln!("[UP-TO-DATE] {}", name);
-                    }
-                    completed.insert(name.clone());
-                    results.push(RuleResult::Skipped(name.clone()));
-                    notify_dependents(&name, graph, &subset, &mut in_degree, &mut ready_queue);
-                    continue;
-                }
-            }
+                cache_guard.is_up_to_date(&name, &rule.inputs, &rule.outputs)
+            };
 
             if opts.dry_run {
                 let expanded_cmds: Vec<String> =
                     rule.commands.iter().map(|c| expand_vars(c, env)).collect();
-                eprintln!("[DRY-RUN] {} -> {}", name, expanded_cmds.join(" && "));
+                if opts.json {
+                    json_items.push(DryRunItem {
+                        name: name.clone(),
+                        commands: expanded_cmds,
+                        skipped: up_to_date,
+                    });
+                } else if up_to_date {
+                    eprintln!("{}", dry_run_up_to_date_line(&name));
+                } else {
+                    eprintln!("[DRY-RUN] {} -> {}", name, expanded_cmds.join(" && "));
+                }
+                completed.insert(name.clone());
+                results.push(RuleResult::Skipped(name.clone()));
+                notify_dependents(&name, graph, &subset, &mut in_degree, &mut ready_queue);
+                continue;
+            }
+
+            if up_to_date {
+                if opts.verbose {
+                    eprintln!("[UP-TO-DATE] {}", name);
+                }
                 completed.insert(name.clone());
                 results.push(RuleResult::Skipped(name.clone()));
                 notify_dependents(&name, graph, &subset, &mut in_degree, &mut ready_queue);
@@ -202,6 +220,10 @@ pub fn execute(
         }
     }
 
+    if opts.dry_run && opts.json {
+        println!("{}", format_dry_run_json(&json_items));
+    }
+
     if !failed.is_empty() {
         let mut failed_list: Vec<&String> = failed.iter().collect();
         failed_list.sort();
@@ -230,6 +252,51 @@ pub fn execute(
 /// Line printed when dry-run skips a cached, up-to-date rule.
 fn dry_run_up_to_date_line(name: &str) -> String {
     format!("[DRY-RUN] skip {name} (up to date)")
+}
+
+fn format_dry_run_json(items: &[DryRunItem]) -> String {
+    let mut out = String::from("[");
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"name\":");
+        out.push_str(&json_string(&item.name));
+        out.push_str(",\"commands\":[");
+        for (j, cmd) in item.commands.iter().enumerate() {
+            if j > 0 {
+                out.push(',');
+            }
+            out.push_str(&json_string(cmd));
+        }
+        out.push_str("],\"skipped\":");
+        out.push_str(if item.skipped { "true" } else { "false" });
+        out.push('}');
+    }
+    out.push(']');
+    out
+}
+
+fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0c}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// When a rule completes (success or failure), decrement in-degree of its
@@ -354,6 +421,7 @@ mod tests {
             jobs,
             dry_run: false,
             verbose: false,
+            json: false,
         };
         execute(&bf, &graph, &order, &cache, &opts)
     }
@@ -448,6 +516,7 @@ rule test\n  env NAME = world\n  run test \"$GREETING\" = hello -a \"$NAME\" = w
             jobs: 1,
             dry_run: false,
             verbose: false,
+            json: false,
         };
         let first = execute(&bf, &graph, &order, &cache, &run_opts);
         assert!(matches!(&first[0], RuleResult::Success(n) if n == "build"));
@@ -456,6 +525,7 @@ rule test\n  env NAME = world\n  run test \"$GREETING\" = hello -a \"$NAME\" = w
             jobs: 1,
             dry_run: true,
             verbose: false,
+            json: false,
         };
         let second = execute(&bf, &graph, &order, &cache, &dry_opts);
         assert!(matches!(&second[0], RuleResult::Skipped(n) if n == "build"));
@@ -466,5 +536,39 @@ rule test\n  env NAME = world\n  run test \"$GREETING\" = hello -a \"$NAME\" = w
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_dry_run_json_contains_name_and_skipped() {
+        let items = [
+            DryRunItem {
+                name: "compile".to_string(),
+                commands: vec!["cc -c a.c".to_string()],
+                skipped: false,
+            },
+            DryRunItem {
+                name: "link".to_string(),
+                commands: vec!["cc a.o -o app".to_string()],
+                skipped: true,
+            },
+        ];
+        let json = format_dry_run_json(&items);
+        assert!(json.contains("\"name\":\"compile\""), "got: {json}");
+        assert!(json.contains("\"skipped\":false"), "got: {json}");
+        assert!(json.contains("\"skipped\":true"), "got: {json}");
+        assert!(json.contains("\"commands\":[\"cc -c a.c\"]"), "got: {json}");
+    }
+
+    #[test]
+    fn test_json_escapes_quotes_and_controls() {
+        let items = [DryRunItem {
+            name: "a\"b\\c".to_string(),
+            commands: vec!["echo \n\t".to_string()],
+            skipped: false,
+        }];
+        let json = format_dry_run_json(&items);
+        assert!(json.contains("a\\\"b\\\\c"), "got: {json}");
+        assert!(json.contains("\\n"), "got: {json}");
+        assert!(json.contains("\\t"), "got: {json}");
     }
 }

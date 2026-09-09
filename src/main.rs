@@ -74,9 +74,9 @@ fn main() {
     // Topological sort
     let order = graph::topological_sort(&g, &reachable);
 
+    eprintln!("jobs: {}", cli.jobs);
     if cli.verbose {
         eprintln!("Execution order: {:?}", order);
-        eprintln!("Parallelism: {} jobs", cli.jobs);
     }
 
     // Load cache
@@ -87,6 +87,7 @@ fn main() {
         jobs: cli.jobs,
         dry_run: cli.dry_run,
         verbose: cli.verbose,
+        json: cli.json,
     };
 
     let results = executor::execute(&bf, &g, &order, &cache, &opts);
@@ -153,6 +154,7 @@ mod integration_tests {
             jobs,
             dry_run: false,
             verbose: false,
+            json: false,
         };
         executor::execute(&bf, &g, &order, cache, &opts)
     }
@@ -370,6 +372,7 @@ rule bad_branch
             jobs: 1,
             dry_run: true,
             verbose: false,
+            json: false,
         };
         let results = executor::execute(&bf, &g, &order, &cache, &opts);
         // Should be skipped, not executed

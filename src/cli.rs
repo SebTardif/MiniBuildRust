@@ -8,6 +8,7 @@ pub struct CliArgs {
     pub clean: bool,
     pub dry_run: bool,
     pub verbose: bool,
+    pub json: bool,
 }
 
 impl Default for CliArgs {
@@ -22,6 +23,7 @@ impl Default for CliArgs {
             clean: false,
             dry_run: false,
             verbose: false,
+            json: false,
         }
     }
 }
@@ -61,6 +63,7 @@ pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
             }
             "--clean" => cli.clean = true,
             "--dry-run" | "-n" => cli.dry_run = true,
+            "--json" => cli.json = true,
             "--verbose" | "-v" => cli.verbose = true,
             "--version" | "-V" => {
                 return Ok(ParseOutcome::Info(format!(
@@ -83,6 +86,7 @@ pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
                     "--clean",
                     "--dry-run",
                     "-n",
+                    "--json",
                     "--verbose",
                     "-v",
                     "--version",
@@ -103,6 +107,9 @@ pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
             }
         }
         i += 1;
+    }
+    if cli.json && !cli.dry_run {
+        return Err("--json requires --dry-run".to_string());
     }
     Ok(ParseOutcome::Run(cli))
 }
@@ -128,6 +135,7 @@ fn usage() -> String {
        --jobs, -j <N>      Max parallel jobs (default: number of CPU cores)\n  \
        --clean             Remove the build cache and rebuild everything\n  \
        --dry-run, -n       Print what would be executed without running anything\n  \
+       --json              Write dry-run plan as JSON to stdout (requires --dry-run)\n  \
        --verbose, -v       Show detailed execution info\n  \
        --version, -V       Show version\n  \
        --help, -h          Show help"
@@ -164,6 +172,7 @@ mod tests {
             "8",
             "--clean",
             "--dry-run",
+            "--json",
             "--verbose",
             "all",
         ]
@@ -175,6 +184,7 @@ mod tests {
         assert_eq!(cli.jobs, 8);
         assert!(cli.clean);
         assert!(cli.dry_run);
+        assert!(cli.json);
         assert!(cli.verbose);
         assert_eq!(cli.target.as_deref(), Some("all"));
     }
@@ -209,6 +219,9 @@ mod tests {
                     .contains("--clean             Remove the build cache and rebuild everything"));
                 assert!(msg.contains(
                     "--dry-run, -n       Print what would be executed without running anything"
+                ));
+                assert!(msg.contains(
+                    "--json              Write dry-run plan as JSON to stdout (requires --dry-run)"
                 ));
                 assert!(msg.contains("--verbose, -v       Show detailed execution info"));
                 assert!(msg.contains("--version, -V       Show version"));
@@ -281,6 +294,23 @@ mod tests {
             .collect();
         let err = parse_args(&args).unwrap_err();
         assert!(err.contains("unexpected argument"));
+    }
+
+    #[test]
+    fn test_json_flag() {
+        for args in [vec!["--dry-run", "--json"], vec!["--json", "--dry-run"]] {
+            let args: Vec<String> = args.into_iter().map(String::from).collect();
+            let cli = unwrap_run(parse_args(&args));
+            assert!(cli.json);
+            assert!(cli.dry_run);
+        }
+    }
+
+    #[test]
+    fn test_json_requires_dry_run() {
+        let args: Vec<String> = vec!["--json".into()];
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("--json requires --dry-run"), "got: {err}");
     }
 
     #[test]

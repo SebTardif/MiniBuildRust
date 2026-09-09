@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * Did-you-mean suggestions for unknown flags, directives, and targets
 * `include <path>` loads another Buildfile relative to the including file
+* `--json` with `--dry-run` writes the plan as a JSON array to stdout
+* Every run prints `jobs: N` to stderr
 
 ### Changed
 

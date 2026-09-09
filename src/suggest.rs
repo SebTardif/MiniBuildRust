@@ -66,6 +66,7 @@ mod tests {
             "--clean",
             "--dry-run",
             "-n",
+            "--json",
             "--verbose",
             "-v",
             "--version",

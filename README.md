@@ -41,6 +41,7 @@ Options:
   --jobs, -j <N>      Max parallel jobs (default: number of CPU cores)
   --clean             Remove the build cache and rebuild everything
   --dry-run, -n       Print what would be executed without running anything
+  --json              Write dry-run plan as JSON to stdout (requires --dry-run)
   --verbose, -v       Show detailed execution info
   --version, -V       Show version
   --help, -h          Show help
@@ -57,6 +58,9 @@ minibuild --jobs 4 compile
 
 # See what would run without executing
 minibuild --dry-run
+
+# Machine-readable dry-run plan
+minibuild --dry-run --json
 
 # Clean cache and rebuild the default target
 minibuild --clean
@@ -171,7 +175,7 @@ src/
 
 ## Tests
 
-The project includes 77 tests covering:
+The project includes 81 tests covering:
 
 - **Diamond dependencies** — A depends on B and C, both depend on D
 - **Large graphs** — 120-rule chains and 110-leaf fan-out graphs to stress the scheduler
