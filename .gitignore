@@ -1,2 +1,3 @@
 /target
 .minibuild_cache
+.DS_Store

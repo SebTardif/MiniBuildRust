@@ -85,7 +85,7 @@ impl BuildCache {
     }
 
     /// Mark a rule as needing rebuild (invalidate).
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn invalidate(&mut self, rule_name: &str) {
         self.entries.remove(rule_name);
     }
