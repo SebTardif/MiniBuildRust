@@ -94,10 +94,11 @@ pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
                     "--help",
                     "-h",
                 ];
-                return Err(match crate::suggest::closest(s, FLAGS) {
-                    Some(hint) => format!("unknown flag: {s} (did you mean `{hint}`?)"),
-                    None => format!("unknown flag: {s}"),
-                });
+                return Err(crate::suggest::with_hint(
+                    &format!("unknown flag: {s}"),
+                    s,
+                    FLAGS,
+                ));
             }
             _ => {
                 if cli.target.is_some() {

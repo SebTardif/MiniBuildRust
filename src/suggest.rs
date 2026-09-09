@@ -19,6 +19,14 @@ pub fn closest<'a>(got: &str, candidates: &[&'a str]) -> Option<&'a str> {
     best.map(|(name, _)| name)
 }
 
+/// Format `base`, appending a did-you-mean hint when `got` is close to a candidate.
+pub fn with_hint(base: &str, got: &str, candidates: &[&str]) -> String {
+    match closest(got, candidates) {
+        Some(hint) => format!("{base} (did you mean `{hint}`?)"),
+        None => base.to_string(),
+    }
+}
+
 fn close_enough(distance: usize, got: &str, cand: &str) -> bool {
     if distance == 0 {
         return false;
@@ -94,6 +102,18 @@ mod tests {
     fn test_closest_empty() {
         assert_eq!(closest("jobs", &[]), None);
         assert_eq!(closest("", &["env"]), None);
+    }
+
+    #[test]
+    fn test_with_hint() {
+        assert_eq!(
+            with_hint("unknown flag: --job", "--job", &["--jobs", "--help"]),
+            "unknown flag: --job (did you mean `--jobs`?)"
+        );
+        assert_eq!(
+            with_hint("unknown flag: --zzzz", "--zzzz", &["--jobs"]),
+            "unknown flag: --zzzz"
+        );
     }
 
     #[test]

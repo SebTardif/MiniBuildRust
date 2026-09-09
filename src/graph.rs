@@ -28,13 +28,11 @@ pub fn build_graph(bf: &BuildFile) -> Result<BuildGraph, String> {
         for dep in &rule.deps {
             if !rule_names.contains(dep.as_str()) {
                 let names: Vec<&str> = bf.rules.keys().map(String::as_str).collect();
-                return Err(match crate::suggest::closest(dep, &names) {
-                    Some(hint) => format!(
-                        "rule '{}' depends on '{}', which is not defined (did you mean `{hint}`?)",
-                        name, dep
-                    ),
-                    None => format!("rule '{}' depends on '{}', which is not defined", name, dep),
-                });
+                return Err(crate::suggest::with_hint(
+                    &format!("rule '{name}' depends on '{dep}', which is not defined"),
+                    dep,
+                    &names,
+                ));
             }
             deps.entry(name.clone()).or_default().push(dep.clone());
             rdeps.entry(dep.clone()).or_default().push(name.clone());
@@ -119,10 +117,11 @@ fn detect_cycle(graph: &BuildGraph) -> Result<(), String> {
 pub fn reachable_from(target: &str, graph: &BuildGraph) -> Result<HashSet<String>, String> {
     if !graph.deps.contains_key(target) {
         let names: Vec<&str> = graph.nodes.iter().map(String::as_str).collect();
-        return Err(match crate::suggest::closest(target, &names) {
-            Some(hint) => format!("target '{target}' is not defined (did you mean `{hint}`?)"),
-            None => format!("target '{target}' is not defined"),
-        });
+        return Err(crate::suggest::with_hint(
+            &format!("target '{target}' is not defined"),
+            target,
+            &names,
+        ));
     }
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
