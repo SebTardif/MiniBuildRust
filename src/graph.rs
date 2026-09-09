@@ -269,6 +269,14 @@ rule e\n  run echo e\n",
     }
 
     #[test]
+    fn test_self_cycle() {
+        let bf = make_buildfile("rule a\n  deps a\n  run echo a\n");
+        let result = build_graph(&bf);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("circular dependency"));
+    }
+
+    #[test]
     fn test_reachable_from_unknown() {
         let bf = make_buildfile("rule a\n  run echo a\n");
         let g = build_graph(&bf).unwrap();

@@ -26,7 +26,16 @@ impl Default for CliArgs {
     }
 }
 
-pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
+/// Outcome of CLI argument parsing.
+#[derive(Debug)]
+pub enum ParseOutcome {
+    /// Successfully parsed arguments; proceed with build.
+    Run(CliArgs),
+    /// Informational output (--help, --version); print to stdout and exit 0.
+    Info(String),
+}
+
+pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
     let mut cli = CliArgs::default();
     let mut i = 0;
     while i < args.len() {
@@ -54,10 +63,13 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
             "--dry-run" | "-n" => cli.dry_run = true,
             "--verbose" | "-v" => cli.verbose = true,
             "--version" | "-V" => {
-                return Err(format!("minibuild {}", env!("CARGO_PKG_VERSION")));
+                return Ok(ParseOutcome::Info(format!(
+                    "minibuild {}",
+                    env!("CARGO_PKG_VERSION")
+                )));
             }
             "--help" | "-h" => {
-                return Err(usage());
+                return Ok(ParseOutcome::Info(usage()));
             }
             s if s.starts_with('-') => {
                 return Err(format!("unknown flag: {s}"));
@@ -71,7 +83,7 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
         }
         i += 1;
     }
-    Ok(cli)
+    Ok(ParseOutcome::Run(cli))
 }
 
 fn usage() -> String {
@@ -91,9 +103,18 @@ fn usage() -> String {
 mod tests {
     use super::*;
 
+    /// Extract CliArgs from a ParseOutcome::Run, panicking on Info or Err.
+    fn unwrap_run(result: Result<ParseOutcome, String>) -> CliArgs {
+        match result {
+            Ok(ParseOutcome::Run(cli)) => cli,
+            Ok(ParseOutcome::Info(msg)) => panic!("expected Run, got Info: {msg}"),
+            Err(e) => panic!("expected Run, got Err: {e}"),
+        }
+    }
+
     #[test]
     fn test_defaults() {
-        let cli = parse_args(&[]).unwrap();
+        let cli = unwrap_run(parse_args(&[]));
         assert_eq!(cli.file, "Buildfile");
         assert!(cli.jobs >= 1);
         assert!(cli.target.is_none());
@@ -114,7 +135,7 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        let cli = parse_args(&args).unwrap();
+        let cli = unwrap_run(parse_args(&args));
         assert_eq!(cli.file, "build.mb");
         assert_eq!(cli.jobs, 8);
         assert!(cli.clean);
@@ -132,8 +153,62 @@ mod tests {
     #[test]
     fn test_version_flag() {
         let args: Vec<String> = vec!["--version"].into_iter().map(String::from).collect();
+        match parse_args(&args).unwrap() {
+            ParseOutcome::Info(msg) => assert!(msg.starts_with("minibuild ")),
+            other => panic!("expected Info, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_help_flag() {
+        let args: Vec<String> = vec!["--help"].into_iter().map(String::from).collect();
+        match parse_args(&args).unwrap() {
+            ParseOutcome::Info(msg) => assert!(msg.contains("Usage:")),
+            other => panic!("expected Info, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_help_short_flag() {
+        let args: Vec<String> = vec!["-h"].into_iter().map(String::from).collect();
+        match parse_args(&args).unwrap() {
+            ParseOutcome::Info(msg) => assert!(msg.contains("Usage:")),
+            other => panic!("expected Info, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_unknown_flag() {
+        let args: Vec<String> = vec!["--unknown"].into_iter().map(String::from).collect();
         let err = parse_args(&args).unwrap_err();
-        assert!(err.starts_with("minibuild "));
+        assert!(err.contains("unknown flag"));
+    }
+
+    #[test]
+    fn test_file_missing_value() {
+        let args: Vec<String> = vec!["--file"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("requires a value"));
+    }
+
+    #[test]
+    fn test_jobs_invalid_value() {
+        let args: Vec<String> = vec!["--jobs", "abc"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("invalid --jobs value"));
+    }
+
+    #[test]
+    fn test_duplicate_target() {
+        let args: Vec<String> = vec!["target1", "target2"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("unexpected argument"));
     }
 
     #[test]
@@ -142,7 +217,7 @@ mod tests {
             .into_iter()
             .map(String::from)
             .collect();
-        let cli = parse_args(&args).unwrap();
+        let cli = unwrap_run(parse_args(&args));
         assert_eq!(cli.file, "my.build");
         assert_eq!(cli.jobs, 2);
         assert!(cli.dry_run);

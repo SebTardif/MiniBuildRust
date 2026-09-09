@@ -236,6 +236,22 @@ mod tests {
     }
 
     #[test]
+    fn test_deserialize_empty() {
+        let cache = BuildCache::deserialize("");
+        assert!(cache.entries.is_empty());
+    }
+
+    #[test]
+    fn test_deserialize_malformed_lines() {
+        // Lines that don't match any prefix should be silently skipped
+        let content = "RULE test\n  IN abc not_a_number\n  garbage line\n";
+        let cache = BuildCache::deserialize(content);
+        assert_eq!(cache.entries.len(), 1);
+        // The malformed IN line should be skipped (non-numeric timestamp)
+        assert!(cache.entries["test"].input_hashes.is_empty());
+    }
+
+    #[test]
     fn test_clean() {
         let dir = std::env::temp_dir().join("minibuild_test_clean");
         let _ = fs::remove_dir_all(&dir);

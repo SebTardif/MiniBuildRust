@@ -83,7 +83,9 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
                 rules.insert(r.name.clone(), r);
             }
 
-            if let Some(rest) = line.strip_prefix("rule ") {
+            if line == "rule" {
+                return Err(format!("line {line_num}: rule has no name"));
+            } else if let Some(rest) = line.strip_prefix("rule ") {
                 let name = rest.trim().to_string();
                 if name.is_empty() {
                     return Err(format!("line {line_num}: rule has no name"));
@@ -277,6 +279,95 @@ rule link
     fn test_expand_vars_missing() {
         let env = HashMap::new();
         assert_eq!(expand_vars("$MISSING test", &env), " test");
+    }
+
+    #[test]
+    fn test_parse_indented_line_outside_rule() {
+        let input = "  run echo orphan\n";
+        let err = parse(input).unwrap_err();
+        assert!(err.contains("indented line outside of a rule block"));
+    }
+
+    #[test]
+    fn test_parse_empty_rule_name() {
+        // "rule" alone (no name following) should error
+        let input = "rule\n  run echo test\n";
+        let err = parse(input).unwrap_err();
+        assert!(err.contains("rule has no name"));
+    }
+
+    #[test]
+    fn test_parse_rule_trailing_whitespace_only() {
+        // "rule   " (only whitespace after prefix) should also error
+        let input = "rule   \n  run echo test\n";
+        let err = parse(input).unwrap_err();
+        assert!(err.contains("rule has no name"));
+    }
+
+    #[test]
+    fn test_parse_unknown_top_level_directive() {
+        let input = "unknown_directive something\n";
+        let err = parse(input).unwrap_err();
+        assert!(err.contains("unexpected top-level directive"));
+    }
+
+    #[test]
+    fn test_parse_unknown_rule_directive() {
+        let input = "rule a\n  badkey value\n";
+        let err = parse(input).unwrap_err();
+        assert!(err.contains("unknown rule directive"));
+    }
+
+    #[test]
+    fn test_expand_vars_bare_dollar_at_end() {
+        let env = HashMap::new();
+        // Bare $ at end of string should pass through as literal $
+        assert_eq!(expand_vars("hello$", &env), "hello$");
+    }
+
+    #[test]
+    fn test_expand_vars_unclosed_brace() {
+        let env = HashMap::new();
+        // ${VAR without closing brace should pass through as literal
+        assert_eq!(expand_vars("${UNCLOSED", &env), "${UNCLOSED");
+    }
+
+    #[test]
+    fn test_parse_env_empty_key() {
+        let input = "env  = value\nrule a\n  run echo a\n";
+        let err = parse(input).unwrap_err();
+        assert!(err.contains("empty key"));
+    }
+
+    #[test]
+    fn test_expand_vars_double_dollar() {
+        let mut env = HashMap::new();
+        env.insert("X".to_string(), "val".to_string());
+        // First $ sees next char $ (not alphanumeric), passes through as literal $.
+        // Second $ sees X, expands to "val". Result: "$val"
+        let result = expand_vars("$$X", &env);
+        assert_eq!(result, "$val");
+    }
+
+    #[test]
+    fn test_parse_unicode_rule_name() {
+        let input = "rule caf\u{00e9}\n  run echo hello\n";
+        let bf = parse(input).unwrap();
+        assert!(bf.rules.contains_key("caf\u{00e9}"));
+    }
+
+    #[test]
+    fn test_parse_many_deps() {
+        let mut input = String::from("rule top\n  deps");
+        for i in 0..50 {
+            input.push_str(&format!(" dep{i}"));
+        }
+        input.push('\n');
+        for i in 0..50 {
+            input.push_str(&format!("rule dep{i}\n  run echo {i}\n"));
+        }
+        let bf = parse(&input).unwrap();
+        assert_eq!(bf.rules["top"].deps.len(), 50);
     }
 
     #[test]
