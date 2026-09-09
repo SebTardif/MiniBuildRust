@@ -27,9 +27,11 @@ pub fn build_graph(bf: &BuildFile) -> Result<BuildGraph, String> {
 
         for dep in &rule.deps {
             if !rule_names.contains(dep.as_str()) {
-                return Err(format!(
-                    "rule '{}' depends on '{}', which is not defined",
-                    name, dep
+                let names: Vec<&str> = bf.rules.keys().map(String::as_str).collect();
+                return Err(crate::suggest::with_hint(
+                    &format!("rule '{name}' depends on '{dep}', which is not defined"),
+                    dep,
+                    &names,
                 ));
             }
             deps.entry(name.clone()).or_default().push(dep.clone());
@@ -74,15 +76,21 @@ fn detect_cycle(graph: &BuildGraph) -> Result<(), String> {
                 match color.get(dep.as_str()) {
                     Some(Color::Gray) => {
                         // Found a cycle — extract the cycle path
-                        let cycle_start = path.iter().position(|&n| n == dep.as_str()).unwrap();
-                        let cycle: Vec<&str> = path[cycle_start..].to_vec();
-                        let mut desc = cycle
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect::<Vec<_>>()
-                            .join(" -> ");
-                        desc.push_str(&format!(" -> {dep}"));
-                        return Err(format!("circular dependency detected: {desc}"));
+                        match path.iter().position(|&n| n == dep.as_str()) {
+                            Some(cycle_start) => {
+                                let cycle: Vec<&str> = path[cycle_start..].to_vec();
+                                let mut desc = cycle
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(" -> ");
+                                desc.push_str(&format!(" -> {dep}"));
+                                return Err(format!("circular dependency detected: {desc}"));
+                            }
+                            None => {
+                                return Err(format!("circular dependency detected: {dep}"));
+                            }
+                        }
                     }
                     Some(Color::Black) => continue,
                     _ => dfs(dep, graph, color, path)?,
@@ -108,7 +116,12 @@ fn detect_cycle(graph: &BuildGraph) -> Result<(), String> {
 /// following the dependency edges transitively.
 pub fn reachable_from(target: &str, graph: &BuildGraph) -> Result<HashSet<String>, String> {
     if !graph.deps.contains_key(target) {
-        return Err(format!("target '{}' is not defined", target));
+        let names: Vec<&str> = graph.nodes.iter().map(String::as_str).collect();
+        return Err(crate::suggest::with_hint(
+            &format!("target '{target}' is not defined"),
+            target,
+            &names,
+        ));
     }
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
@@ -168,10 +181,11 @@ pub fn topological_sort(graph: &BuildGraph, subset: &HashSet<String>) -> Vec<Str
                 if !subset.contains(dependent) {
                     continue;
                 }
-                let deg = in_degree.get_mut(dependent.as_str()).unwrap();
-                *deg -= 1;
-                if *deg == 0 {
-                    ready.push(dependent.as_str());
+                if let Some(deg) = in_degree.get_mut(dependent.as_str()) {
+                    *deg -= 1;
+                    if *deg == 0 {
+                        ready.push(dependent.as_str());
+                    }
                 }
             }
             ready.sort();
@@ -229,6 +243,15 @@ mod tests {
     }
 
     #[test]
+    fn test_missing_dependency_suggests() {
+        let bf =
+            make_buildfile("rule greet\n  run echo hi\nrule all\n  deps greett\n  run echo all\n");
+        let err = build_graph(&bf).unwrap_err();
+        assert!(err.contains("not defined"), "got: {err}");
+        assert!(err.contains("did you mean `greet`"), "got: {err}");
+    }
+
+    #[test]
     fn test_diamond_topo_sort() {
         let bf = make_buildfile(
             "\
@@ -281,5 +304,14 @@ rule e\n  run echo e\n",
         let bf = make_buildfile("rule a\n  run echo a\n");
         let g = build_graph(&bf).unwrap();
         assert!(reachable_from("ghost", &g).is_err());
+    }
+
+    #[test]
+    fn test_reachable_from_unknown_suggests() {
+        let bf = make_buildfile("rule greet\n  run echo hi\n");
+        let g = build_graph(&bf).unwrap();
+        let err = reachable_from("greeet", &g).unwrap_err();
+        assert!(err.contains("not defined"), "got: {err}");
+        assert!(err.contains("did you mean `greet`"), "got: {err}");
     }
 }

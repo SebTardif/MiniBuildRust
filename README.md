@@ -41,6 +41,7 @@ Options:
   --jobs, -j <N>      Max parallel jobs (default: number of CPU cores)
   --clean             Remove the build cache and rebuild everything
   --dry-run, -n       Print what would be executed without running anything
+  --json              Write dry-run plan as JSON to stdout (requires --dry-run)
   --verbose, -v       Show detailed execution info
   --version, -V       Show version
   --help, -h          Show help
@@ -58,7 +59,13 @@ minibuild --jobs 4 compile
 # See what would run without executing
 minibuild --dry-run
 
-# Clean cached state and rebuild from scratch
+# Machine-readable dry-run plan
+minibuild --dry-run --json
+
+# Clean cache and rebuild the default target
+minibuild --clean
+
+# Clean cached state and rebuild a specific target
 minibuild --clean all
 
 # Use a different build file
@@ -107,6 +114,15 @@ rule link
 | `env KEY = VALUE` | Set a global environment variable |
 | `default <target>` | Default target when none given on CLI |
 | `rule <name>` | Begin a rule block |
+| `include <path>` | Load another Buildfile relative to this file |
+
+```
+include lib.mb
+rule app
+  deps lib
+```
+
+A missing include fails as `cannot include '<path>'` and names the include line and including file. A cycle fails as `include cycle: a -> b -> a`. Unknown flags, directives, and targets may append `(did you mean 'name'?)`.
 
 **Inside a rule block** (indented):
 
@@ -141,6 +157,7 @@ Minibuild tracks the modification timestamps of each rule's `inputs` and `output
 3. The rule is not marked `phony`
 
 State is stored in `.minibuild_cache` in the working directory. Use `--clean` to reset it.
+The example Buildfile declares `inputs`, so a second `cargo run` skips unchanged rules.
 
 ## Architecture
 
@@ -152,11 +169,12 @@ src/
   graph.rs      DAG construction, cycle detection (3-color DFS), topological sort (Kahn's)
   executor.rs   Parallel scheduler with thread worker pool and mpsc coordination
   cache.rs      Timestamp-based incremental build cache with serialization
+  suggest.rs    Did-you-mean helper for unknown flags, keywords, and targets
 ```
 
 ## Tests
 
-The project includes 56 tests covering:
+The project includes 91 tests covering:
 
 - **Diamond dependencies** — A depends on B and C, both depend on D
 - **Large graphs** — 120-rule chains and 110-leaf fan-out graphs to stress the scheduler
@@ -177,7 +195,7 @@ make test
 Every CI job can be reproduced locally via `make`. Run the full suite before committing to catch issues before they hit GitHub:
 
 ```bash
-make ci           # Full suite: fmt, clippy, test, docs, lockfile, deny
+make ci           # Full suite: fmt, clippy, test, docs, lockfile, deny, msrv
 make quick        # Fast pre-commit: fmt + clippy + test
 make fmt          # Auto-format code
 make fix          # Auto-fix clippy warnings + format

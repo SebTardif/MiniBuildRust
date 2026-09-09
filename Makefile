@@ -8,7 +8,8 @@
 #   make fix       — auto-fix clippy + fmt
 #
 # Prerequisites: rustup components rustfmt, clippy (installed by default).
-# Optional: cargo-deny (`cargo install cargo-deny`).
+# cargo-deny is required for `make deny` and `make ci` (`cargo install cargo-deny`).
+# `make msrv` / `make ci` require rustup and the MSRV toolchain (1.78.0).
 
 CARGO        := cargo
 MSRV         := 1.78.0
@@ -19,7 +20,7 @@ RUSTFLAGS_CI := -Dwarnings
 # ── Aggregate targets ─────────────────────────────────────────────
 
 ## Run the full CI suite locally (mirrors every GitHub Actions job)
-ci: fmt-check clippy test docs lockfile deny
+ci: fmt-check clippy test docs lockfile deny msrv
 	@echo ""
 	@echo "All CI checks passed."
 
@@ -56,7 +57,8 @@ lockfile:
 
 ## Run cargo-deny checks (mirrors CI: Security Audit — requires cargo-deny)
 deny:
-	@command -v cargo-deny >/dev/null 2>&1 && cargo deny check || echo "cargo-deny not installed, skipping (install: cargo install cargo-deny)"
+	@command -v cargo-deny >/dev/null 2>&1 || { echo "error: cargo-deny is required (install: cargo install cargo-deny)"; exit 1; }
+	cargo deny check
 
 # ── Developer helpers ─────────────────────────────────────────────
 
@@ -77,7 +79,7 @@ clean:
 ## Show available targets
 help:
 	@echo "Targets:"
-	@echo "  make ci        Full CI suite (what GitHub Actions runs)"
+	@echo "  make ci        Full CI suite (fmt, clippy, test, docs, lockfile, deny, msrv)"
 	@echo "  make quick     Fast pre-commit (fmt + clippy + test)"
 	@echo "  make fmt       Auto-format code"
 	@echo "  make fix       Auto-fix clippy + format"

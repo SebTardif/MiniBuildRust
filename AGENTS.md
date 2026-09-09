@@ -9,7 +9,7 @@ into a DAG, and executes independent jobs concurrently.
 ## Build and test
 
 ```bash
-make ci           # Full CI suite (fmt, clippy, test, docs, lockfile, deny)
+make ci           # Full CI suite (fmt, clippy, test, docs, lockfile, deny, msrv)
 make quick        # Fast pre-commit: fmt + clippy + test
 make test         # Run tests only
 ```
@@ -26,6 +26,7 @@ src/
   graph.rs      DAG construction, cycle detection, topological sort
   executor.rs   Parallel scheduler with thread worker pool
   cache.rs      Timestamp-based incremental build cache
+  suggest.rs    Did-you-mean helper for unknown flags, keywords, and targets
 ```
 
 ## Conventions

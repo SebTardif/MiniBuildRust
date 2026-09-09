@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 /// A single build rule parsed from the Buildfile.
 #[derive(Debug, Clone)]
@@ -40,6 +42,7 @@ pub struct BuildFile {
 ///
 /// ```text
 /// # comment
+/// include common.mb
 /// env CC = gcc
 /// env CFLAGS = -Wall -O2
 ///
@@ -58,14 +61,109 @@ pub struct BuildFile {
 ///   run $CC $CFLAGS $EXTRA -c src/main.c -o build/main.o
 ///   run $CC $CFLAGS $EXTRA -c src/util.c -o build/util.o
 /// ```
+///
+/// `include` is only supported via [`parse_file`]. Paths resolve relative
+/// to the including file. The string [`parse`] entry point rejects `include`
+/// so it never touches the filesystem.
+///
+/// The binary loads files via [`parse_file`]; this string entry point is
+/// the API for tests and in-memory Buildfiles.
+#[allow(dead_code)]
 pub fn parse(input: &str) -> Result<BuildFile, String> {
     let mut rules: HashMap<String, Rule> = HashMap::new();
     let mut global_env: HashMap<String, String> = HashMap::new();
     let mut default_target: Option<String> = None;
+    parse_into(
+        input,
+        Path::new("."),
+        None,
+        &mut rules,
+        &mut global_env,
+        &mut default_target,
+    )?;
+    finish_parse(rules, global_env, default_target)
+}
+
+/// Parse a Buildfile from disk so `include` paths resolve relative to it.
+pub fn parse_file(path: &Path) -> Result<BuildFile, String> {
+    let canonical =
+        fs::canonicalize(path).map_err(|e| format!("cannot read '{}': {}", path.display(), e))?;
+    let content = fs::read_to_string(&canonical)
+        .map_err(|e| format!("cannot read '{}': {}", path.display(), e))?;
+    let base = parent_dir(path);
+    let mut ctx = IncludeCtx {
+        stack: vec![IncludeFrame {
+            display: path_display(path),
+            canonical,
+        }],
+        loaded: HashSet::new(),
+    };
+    let mut rules: HashMap<String, Rule> = HashMap::new();
+    let mut global_env: HashMap<String, String> = HashMap::new();
+    let mut default_target: Option<String> = None;
+    parse_into(
+        &content,
+        base,
+        Some(&mut ctx),
+        &mut rules,
+        &mut global_env,
+        &mut default_target,
+    )?;
+    finish_parse(rules, global_env, default_target)
+}
+
+struct IncludeFrame {
+    display: String,
+    canonical: PathBuf,
+}
+
+struct IncludeCtx {
+    stack: Vec<IncludeFrame>,
+    loaded: HashSet<PathBuf>,
+}
+
+fn parent_dir(path: &Path) -> &Path {
+    match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    }
+}
+
+fn path_display(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+fn finish_parse(
+    rules: HashMap<String, Rule>,
+    global_env: HashMap<String, String>,
+    default_target: Option<String>,
+) -> Result<BuildFile, String> {
+    if rules.is_empty() {
+        return Err("Buildfile contains no rules".to_string());
+    }
+    Ok(BuildFile {
+        rules,
+        global_env,
+        default_target,
+    })
+}
+
+fn parse_into(
+    input: &str,
+    base_dir: &Path,
+    mut include: Option<&mut IncludeCtx>,
+    rules: &mut HashMap<String, Rule>,
+    global_env: &mut HashMap<String, String>,
+    default_target: &mut Option<String>,
+) -> Result<(), String> {
     let mut current_rule: Option<Rule> = None;
+    let mut last_line_num = 0;
 
     for (line_no, raw_line) in input.lines().enumerate() {
         let line_num = line_no + 1;
+        last_line_num = line_num;
         let line = raw_line.trim();
 
         // blank or comment
@@ -77,10 +175,7 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
         if !raw_line.starts_with(' ') && !raw_line.starts_with('\t') {
             // finalize previous rule
             if let Some(r) = current_rule.take() {
-                if rules.contains_key(&r.name) {
-                    return Err(format!("line {line_num}: duplicate rule '{}'", r.name));
-                }
-                rules.insert(r.name.clone(), r);
+                insert_rule(rules, r, line_num)?;
             }
 
             if line == "rule" {
@@ -95,10 +190,37 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
                 let (k, v) = parse_kv(rest, line_num)?;
                 global_env.insert(k, v);
             } else if let Some(rest) = line.strip_prefix("default ") {
-                default_target = Some(rest.trim().to_string());
+                *default_target = Some(rest.trim().to_string());
+            } else if line == "include" {
+                return Err(format!("line {line_num}: include has no path"));
+            } else if let Some(rest) = line.strip_prefix("include ") {
+                let spec = rest.trim();
+                if spec.is_empty() {
+                    return Err(format!("line {line_num}: include has no path"));
+                }
+                match include.as_mut() {
+                    Some(ctx) => {
+                        let from = ctx
+                            .stack
+                            .last()
+                            .map(|f| f.display.clone())
+                            .unwrap_or_else(|| "Buildfile".to_string());
+                        include_file(spec, base_dir, ctx, rules, global_env, default_target)
+                            .map_err(|e| wrap_include_error(line_num, spec, &from, e))?;
+                    }
+                    None => {
+                        return Err(format!(
+                            "line {line_num}: include requires a file path; use parse_file"
+                        ));
+                    }
+                }
             } else {
-                return Err(format!(
-                    "line {line_num}: unexpected top-level directive: {line}"
+                let token = line.split_whitespace().next().unwrap_or(line);
+                const TOP: &[&str] = &["env", "default", "rule", "include"];
+                return Err(crate::suggest::with_hint(
+                    &format!("line {line_num}: unexpected top-level directive: {line}"),
+                    token,
+                    TOP,
                 ));
             }
         } else {
@@ -123,28 +245,123 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
             } else if let Some(rest) = line.strip_prefix("phony ") {
                 rule.phony = rest.trim().eq_ignore_ascii_case("true");
             } else {
-                return Err(format!("line {line_num}: unknown rule directive: {line}"));
+                let token = line.split_whitespace().next().unwrap_or(line);
+                const INNER: &[&str] = &[
+                    "deps",
+                    "inputs",
+                    "outputs",
+                    "env",
+                    "run",
+                    "description",
+                    "phony",
+                ];
+                return Err(crate::suggest::with_hint(
+                    &format!("line {line_num}: unknown rule directive: {line}"),
+                    token,
+                    INNER,
+                ));
             }
         }
     }
 
     // finalize last rule
     if let Some(r) = current_rule.take() {
-        if rules.contains_key(&r.name) {
-            return Err(format!("duplicate rule '{}'", r.name));
+        insert_rule(rules, r, last_line_num)?;
+    }
+
+    Ok(())
+}
+
+/// Attach the include site and included path to a failed `include`.
+///
+/// Missing files and cycles become `line N: cannot include 'spec': ...`.
+/// Nested parse errors become `line L of spec (included from file:N): ...`.
+fn wrap_include_error(line_num: usize, spec: &str, from_file: &str, err: String) -> String {
+    if let Some(rest) = err.strip_prefix("line ") {
+        if let Some((loc, msg)) = rest.split_once(": ") {
+            let first = loc.split_whitespace().next().unwrap_or("");
+            if !first.is_empty() && first.chars().all(|c| c.is_ascii_digit()) {
+                if let Some(stripped) = loc.strip_suffix(')') {
+                    if let Some(idx) = stripped.find(" (included from ") {
+                        let head = &stripped[..idx];
+                        let inner = &stripped[idx + " (included from ".len()..];
+                        return format!(
+                            "line {head} (included from {inner}, included from {from_file}:{line_num}): {msg}"
+                        );
+                    }
+                }
+                if loc.contains(" of ") {
+                    return format!("line {loc} (included from {from_file}:{line_num}): {msg}");
+                }
+                return format!(
+                    "line {loc} of {spec} (included from {from_file}:{line_num}): {msg}"
+                );
+            }
         }
-        rules.insert(r.name.clone(), r);
+    }
+    if err.starts_with("cannot include ") {
+        format!("line {line_num}: {err}")
+    } else {
+        format!("line {line_num}: cannot include '{spec}': {err}")
+    }
+}
+
+fn include_file(
+    spec: &str,
+    base_dir: &Path,
+    ctx: &mut IncludeCtx,
+    rules: &mut HashMap<String, Rule>,
+    global_env: &mut HashMap<String, String>,
+    default_target: &mut Option<String>,
+) -> Result<(), String> {
+    let path = base_dir.join(spec);
+    let canonical = fs::canonicalize(&path).map_err(|e| format!("cannot include '{spec}': {e}"))?;
+
+    if let Some(pos) = ctx.stack.iter().position(|f| f.canonical == canonical) {
+        let mut parts: Vec<&str> = ctx.stack[pos..]
+            .iter()
+            .map(|f| f.display.as_str())
+            .collect();
+        parts.push(spec);
+        return Err(format!("include cycle: {}", parts.join(" -> ")));
     }
 
-    if rules.is_empty() {
-        return Err("Buildfile contains no rules".to_string());
+    if ctx.loaded.contains(&canonical) {
+        return Ok(());
     }
 
-    Ok(BuildFile {
+    let content =
+        fs::read_to_string(&canonical).map_err(|e| format!("cannot include '{spec}': {e}"))?;
+    let child_base = parent_dir(&path);
+    ctx.stack.push(IncludeFrame {
+        display: spec.to_string(),
+        canonical: canonical.clone(),
+    });
+    let result = parse_into(
+        &content,
+        child_base,
+        Some(ctx),
         rules,
         global_env,
         default_target,
-    })
+    );
+    ctx.stack.pop();
+    if result.is_ok() {
+        ctx.loaded.insert(canonical);
+    }
+    result
+}
+
+fn insert_rule(
+    rules: &mut HashMap<String, Rule>,
+    rule: Rule,
+    line_num: usize,
+) -> Result<(), String> {
+    if rules.contains_key(&rule.name) {
+        return Err(format!("line {line_num}: duplicate rule '{}'", rule.name));
+    }
+    rules.insert(rule.name.clone(), rule);
+    Ok(())
 }
 
 fn parse_kv(s: &str, line_num: usize) -> Result<(String, String), String> {
@@ -200,8 +417,12 @@ pub fn expand_vars(s: &str, env: &HashMap<String, String>) -> String {
                 continue;
             }
         }
-        result.push(bytes[i] as char);
-        i += 1;
+        let ch = match s[i..].chars().next() {
+            Some(c) => c,
+            None => break,
+        };
+        result.push(ch);
+        i += ch.len_utf8();
     }
     result
 }
@@ -257,7 +478,8 @@ rule link
     #[test]
     fn test_parse_duplicate_rule() {
         let input = "rule a\n  run echo a\nrule a\n  run echo b\n";
-        assert!(parse(input).is_err());
+        let err = parse(input).unwrap_err();
+        assert!(err.contains("duplicate rule"), "got: {err}");
     }
 
     #[test]
@@ -279,6 +501,19 @@ rule link
     fn test_expand_vars_missing() {
         let env = HashMap::new();
         assert_eq!(expand_vars("$MISSING test", &env), " test");
+    }
+
+    #[test]
+    fn test_expand_vars_utf8_literal() {
+        let env = HashMap::new();
+        assert_eq!(expand_vars("echo café", &env), "echo café");
+    }
+
+    #[test]
+    fn test_expand_vars_utf8_value() {
+        let mut env = HashMap::new();
+        env.insert("GREETING".to_string(), "café".to_string());
+        assert_eq!(expand_vars("echo $GREETING", &env), "echo café");
     }
 
     #[test]
@@ -312,10 +547,24 @@ rule link
     }
 
     #[test]
+    fn test_parse_unknown_top_level_suggests() {
+        let err = parse("rul hello\n").unwrap_err();
+        assert!(err.contains("unexpected top-level directive"), "got: {err}");
+        assert!(err.contains("did you mean `rule`"), "got: {err}");
+    }
+
+    #[test]
     fn test_parse_unknown_rule_directive() {
         let input = "rule a\n  badkey value\n";
         let err = parse(input).unwrap_err();
         assert!(err.contains("unknown rule directive"));
+    }
+
+    #[test]
+    fn test_parse_unknown_rule_suggests() {
+        let err = parse("rule a\n  dep b\n").unwrap_err();
+        assert!(err.contains("unknown rule directive"), "got: {err}");
+        assert!(err.contains("did you mean `deps`"), "got: {err}");
     }
 
     #[test]
@@ -374,5 +623,173 @@ rule link
     fn test_parse_env_missing_equals() {
         let input = "env BROKEN\nrule a\n  run echo a\n";
         assert!(parse(input).is_err());
+    }
+
+    fn write_temp_build(dir_name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(dir_name);
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        for (name, body) in files {
+            fs::write(dir.join(name), body).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn test_include_sibling_rule() {
+        let dir = write_temp_build(
+            "minibuild_test_include_sibling",
+            &[
+                ("child.mb", "rule child\n  run echo child\n"),
+                (
+                    "parent.mb",
+                    "include child.mb\nrule parent\n  deps child\n  run echo parent\n",
+                ),
+            ],
+        );
+        let bf = parse_file(&dir.join("parent.mb")).unwrap();
+        assert!(bf.rules.contains_key("child"));
+        assert!(bf.rules.contains_key("parent"));
+        assert_eq!(bf.rules["parent"].deps, vec!["child"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_cycle() {
+        let dir = write_temp_build(
+            "minibuild_test_include_cycle",
+            &[
+                ("a", "include b\nrule ra\n  run echo a\n"),
+                ("b", "include a\nrule rb\n  run echo b\n"),
+            ],
+        );
+        let err = parse_file(&dir.join("a")).unwrap_err();
+        assert!(err.contains("include cycle: a -> b -> a"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_missing_file() {
+        let dir = write_temp_build(
+            "minibuild_test_include_missing",
+            &[("parent.mb", "include missing.mb\nrule a\n  run echo a\n")],
+        );
+        let err = parse_file(&dir.join("parent.mb")).unwrap_err();
+        assert!(err.contains("cannot include 'missing.mb'"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_missing_reports_line_and_spec() {
+        let dir = write_temp_build(
+            "minibuild_test_include_missing_line",
+            &[(
+                "parent.mb",
+                "env FOO = bar\ndefault a\ninclude vanished.mb\nrule a\n  run echo a\n",
+            )],
+        );
+        let err = parse_file(&dir.join("parent.mb")).unwrap_err();
+        assert!(err.contains("line 3"), "got: {err}");
+        assert!(err.contains("vanished.mb"), "got: {err}");
+        assert!(err.contains("cannot include 'vanished.mb'"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_nested_parse_error_reports_site() {
+        let dir = write_temp_build(
+            "minibuild_test_include_nested_parse",
+            &[
+                (
+                    "child.mb",
+                    "rule child\n  run echo child\nnot_a_directive oops\n",
+                ),
+                (
+                    "parent.mb",
+                    "env FOO = bar\ninclude child.mb\nrule parent\n  deps child\n  run echo parent\n",
+                ),
+            ],
+        );
+        let err = parse_file(&dir.join("parent.mb")).unwrap_err();
+        assert!(err.contains("line 3 of child.mb"), "got: {err}");
+        assert!(err.contains("included from parent.mb:2"), "got: {err}");
+        assert!(err.contains("unexpected"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_duplicate_rule() {
+        let dir = write_temp_build(
+            "minibuild_test_include_duplicate",
+            &[
+                ("child.mb", "rule shared\n  run echo child\n"),
+                (
+                    "parent.mb",
+                    "include child.mb\nrule shared\n  run echo parent\n",
+                ),
+            ],
+        );
+        let err = parse_file(&dir.join("parent.mb")).unwrap_err();
+        assert!(err.contains("duplicate rule"), "got: {err}");
+        assert!(err.contains("shared"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_diamond() {
+        let dir = write_temp_build(
+            "minibuild_test_include_diamond",
+            &[
+                ("common.mb", "rule shared\n  run echo shared\n"),
+                (
+                    "b.mb",
+                    "include common.mb\nrule b\n  deps shared\n  run echo b\n",
+                ),
+                (
+                    "c.mb",
+                    "include common.mb\nrule c\n  deps shared\n  run echo c\n",
+                ),
+                (
+                    "root.mb",
+                    "include b.mb\ninclude c.mb\nrule root\n  deps b c\n  run echo root\n",
+                ),
+            ],
+        );
+        let bf = parse_file(&dir.join("root.mb")).unwrap();
+        assert!(bf.rules.contains_key("shared"));
+        assert!(bf.rules.contains_key("b"));
+        assert!(bf.rules.contains_key("c"));
+        assert!(bf.rules.contains_key("root"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_same_file_twice() {
+        let dir = write_temp_build(
+            "minibuild_test_include_twice",
+            &[
+                ("child.mb", "rule child\n  run echo child\n"),
+                (
+                    "parent.mb",
+                    "include child.mb\ninclude child.mb\nrule parent\n  deps child\n  run echo parent\n",
+                ),
+            ],
+        );
+        let bf = parse_file(&dir.join("parent.mb")).unwrap();
+        assert!(bf.rules.contains_key("child"));
+        assert!(bf.rules.contains_key("parent"));
+        assert_eq!(bf.rules.len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_parse_include_rejects_without_filesystem() {
+        let err = parse("include x\n").unwrap_err();
+        assert!(
+            err.contains("include requires a file path; use parse_file"),
+            "got: {err}"
+        );
+        assert!(!err.contains("cannot include"), "got: {err}");
+        assert!(!err.contains("cannot read"), "got: {err}");
     }
 }

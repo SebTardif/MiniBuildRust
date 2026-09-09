@@ -63,6 +63,15 @@ impl BuildCache {
         let current_inputs = compute_signatures(inputs);
         let current_outputs = compute_signatures(outputs);
 
+        // Missing or unreadable declared paths are dropped by compute_signatures.
+        // Treat that as stale so a rule cannot skip forever after record().
+        if current_inputs.len() != inputs.len() || current_outputs.len() != outputs.len() {
+            return false;
+        }
+        if entry.input_hashes.len() < inputs.len() || entry.output_hashes.len() < outputs.len() {
+            return false;
+        }
+
         entry.input_hashes == current_inputs && entry.output_hashes == current_outputs
     }
 
@@ -76,7 +85,7 @@ impl BuildCache {
     }
 
     /// Mark a rule as needing rebuild (invalidate).
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn invalidate(&mut self, rule_name: &str) {
         self.entries.remove(rule_name);
     }
@@ -229,6 +238,10 @@ mod tests {
         cache.record("test", &inputs, &outputs);
         assert!(cache.is_up_to_date("test", &inputs, &outputs));
 
+        std::thread::sleep(std::time::Duration::from_millis(2100));
+        fs::write(&input_file, "changed").unwrap();
+        assert!(!cache.is_up_to_date("test", &inputs, &outputs));
+
         cache.invalidate("test");
         assert!(!cache.is_up_to_date("test", &inputs, &outputs));
 
@@ -270,6 +283,50 @@ mod tests {
 
         BuildCache::clean(&dir);
         assert!(!dir.join(CACHE_FILE).exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_missing_declared_output_is_stale() {
+        let dir = std::env::temp_dir().join("minibuild_test_cache_missing_output");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let input_file = dir.join("input.txt");
+        fs::write(&input_file, "hello").unwrap();
+        let missing_output = dir.join("does_not_exist.txt");
+
+        let inputs = vec![input_file.to_string_lossy().to_string()];
+        let outputs = vec![missing_output.to_string_lossy().to_string()];
+
+        let mut cache = BuildCache::new();
+        cache.record("test", &inputs, &outputs);
+        assert!(!cache.is_up_to_date("test", &inputs, &outputs));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_deleted_input_is_stale() {
+        let dir = std::env::temp_dir().join("minibuild_test_cache_deleted_input");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let input_file = dir.join("input.txt");
+        let output_file = dir.join("output.txt");
+        fs::write(&input_file, "hello").unwrap();
+        fs::write(&output_file, "world").unwrap();
+
+        let inputs = vec![input_file.to_string_lossy().to_string()];
+        let outputs = vec![output_file.to_string_lossy().to_string()];
+
+        let mut cache = BuildCache::new();
+        cache.record("test", &inputs, &outputs);
+        assert!(cache.is_up_to_date("test", &inputs, &outputs));
+
+        fs::remove_file(&input_file).unwrap();
+        assert!(!cache.is_up_to_date("test", &inputs, &outputs));
 
         let _ = fs::remove_dir_all(&dir);
     }

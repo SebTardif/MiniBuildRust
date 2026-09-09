@@ -8,6 +8,7 @@ pub struct CliArgs {
     pub clean: bool,
     pub dry_run: bool,
     pub verbose: bool,
+    pub json: bool,
 }
 
 impl Default for CliArgs {
@@ -22,6 +23,7 @@ impl Default for CliArgs {
             clean: false,
             dry_run: false,
             verbose: false,
+            json: false,
         }
     }
 }
@@ -61,6 +63,7 @@ pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
             }
             "--clean" => cli.clean = true,
             "--dry-run" | "-n" => cli.dry_run = true,
+            "--json" => cli.json = true,
             "--verbose" | "-v" => cli.verbose = true,
             "--version" | "-V" => {
                 return Ok(ParseOutcome::Info(format!(
@@ -72,7 +75,30 @@ pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
                 return Ok(ParseOutcome::Info(usage()));
             }
             s if s.starts_with('-') => {
-                return Err(format!("unknown flag: {s}"));
+                if is_glued_jobs(s) {
+                    return Err("use `-j 4` or `--jobs 4`".to_string());
+                }
+                const FLAGS: &[&str] = &[
+                    "--file",
+                    "-f",
+                    "--jobs",
+                    "-j",
+                    "--clean",
+                    "--dry-run",
+                    "-n",
+                    "--json",
+                    "--verbose",
+                    "-v",
+                    "--version",
+                    "-V",
+                    "--help",
+                    "-h",
+                ];
+                return Err(crate::suggest::with_hint(
+                    &format!("unknown flag: {s}"),
+                    s,
+                    FLAGS,
+                ));
             }
             _ => {
                 if cli.target.is_some() {
@@ -83,19 +109,37 @@ pub fn parse_args(args: &[String]) -> Result<ParseOutcome, String> {
         }
         i += 1;
     }
+    if cli.json && !cli.dry_run {
+        return Err("--json requires --dry-run".to_string());
+    }
     Ok(ParseOutcome::Run(cli))
+}
+
+fn is_glued_jobs(s: &str) -> bool {
+    if let Some(rest) = s.strip_prefix("-j") {
+        if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+            return true;
+        }
+    }
+    if let Some(rest) = s.strip_prefix("--jobs=") {
+        if !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()) {
+            return true;
+        }
+    }
+    false
 }
 
 fn usage() -> String {
     "Usage: minibuild [OPTIONS] [TARGET]\n\n\
      Options:\n  \
-       --file, -f <FILE>   Build file (default: Buildfile)\n  \
-       --jobs, -j <N>      Parallel jobs (default: num CPUs)\n  \
-       --clean             Remove cache and rebuild all\n  \
-       --dry-run, -n       Print what would be executed\n  \
-       --verbose, -v       Verbose output\n  \
+       --file, -f <FILE>   Build file path (default: Buildfile)\n  \
+       --jobs, -j <N>      Max parallel jobs (default: number of CPU cores)\n  \
+       --clean             Remove the build cache and rebuild everything\n  \
+       --dry-run, -n       Print what would be executed without running anything\n  \
+       --json              Write dry-run plan as JSON to stdout (requires --dry-run)\n  \
+       --verbose, -v       Show detailed execution info\n  \
        --version, -V       Show version\n  \
-       --help, -h          Show this help"
+       --help, -h          Show help"
         .to_string()
 }
 
@@ -129,6 +173,7 @@ mod tests {
             "8",
             "--clean",
             "--dry-run",
+            "--json",
             "--verbose",
             "all",
         ]
@@ -140,6 +185,7 @@ mod tests {
         assert_eq!(cli.jobs, 8);
         assert!(cli.clean);
         assert!(cli.dry_run);
+        assert!(cli.json);
         assert!(cli.verbose);
         assert_eq!(cli.target.as_deref(), Some("all"));
     }
@@ -163,7 +209,25 @@ mod tests {
     fn test_help_flag() {
         let args: Vec<String> = vec!["--help"].into_iter().map(String::from).collect();
         match parse_args(&args).unwrap() {
-            ParseOutcome::Info(msg) => assert!(msg.contains("Usage:")),
+            ParseOutcome::Info(msg) => {
+                assert!(msg.contains("Usage: minibuild [OPTIONS] [TARGET]"));
+                // README.md CLI Usage table is the spec for these strings.
+                assert!(msg.contains("--file, -f <FILE>   Build file path (default: Buildfile)"));
+                assert!(msg.contains(
+                    "--jobs, -j <N>      Max parallel jobs (default: number of CPU cores)"
+                ));
+                assert!(msg
+                    .contains("--clean             Remove the build cache and rebuild everything"));
+                assert!(msg.contains(
+                    "--dry-run, -n       Print what would be executed without running anything"
+                ));
+                assert!(msg.contains(
+                    "--json              Write dry-run plan as JSON to stdout (requires --dry-run)"
+                ));
+                assert!(msg.contains("--verbose, -v       Show detailed execution info"));
+                assert!(msg.contains("--version, -V       Show version"));
+                assert!(msg.contains("--help, -h          Show help"));
+            }
             other => panic!("expected Info, got {other:?}"),
         }
     }
@@ -182,6 +246,28 @@ mod tests {
         let args: Vec<String> = vec!["--unknown"].into_iter().map(String::from).collect();
         let err = parse_args(&args).unwrap_err();
         assert!(err.contains("unknown flag"));
+    }
+
+    #[test]
+    fn test_unknown_flag_suggests_jobs() {
+        let args: Vec<String> = vec!["--job"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("unknown flag"), "got: {err}");
+        assert!(err.contains("did you mean `--jobs`"), "got: {err}");
+    }
+
+    #[test]
+    fn test_glued_short_jobs() {
+        let args: Vec<String> = vec!["-j4"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("use `-j 4` or `--jobs 4`"), "got: {err}");
+    }
+
+    #[test]
+    fn test_glued_long_jobs() {
+        let args: Vec<String> = vec!["--jobs=4"].into_iter().map(String::from).collect();
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("use `-j 4` or `--jobs 4`"), "got: {err}");
     }
 
     #[test]
@@ -209,6 +295,23 @@ mod tests {
             .collect();
         let err = parse_args(&args).unwrap_err();
         assert!(err.contains("unexpected argument"));
+    }
+
+    #[test]
+    fn test_json_flag() {
+        for args in [vec!["--dry-run", "--json"], vec!["--json", "--dry-run"]] {
+            let args: Vec<String> = args.into_iter().map(String::from).collect();
+            let cli = unwrap_run(parse_args(&args));
+            assert!(cli.json);
+            assert!(cli.dry_run);
+        }
+    }
+
+    #[test]
+    fn test_json_requires_dry_run() {
+        let args: Vec<String> = vec!["--json".into()];
+        let err = parse_args(&args).unwrap_err();
+        assert!(err.contains("--json requires --dry-run"), "got: {err}");
     }
 
     #[test]

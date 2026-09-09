@@ -10,11 +10,18 @@ rule all
   run echo "All done!"
 
 rule greet
-  run echo "$GREETING"
+  deps setup
+  inputs /tmp/minibuild_demo/setup.stamp
+  outputs /tmp/minibuild_demo/greet.out
+  run echo "$GREETING" | tee /tmp/minibuild_demo/greet.out
 
 rule compute
   deps setup
-  run echo "Computing result: 42"
+  inputs /tmp/minibuild_demo/setup.stamp
+  outputs /tmp/minibuild_demo/compute.out
+  run echo "Computing result: 42" | tee /tmp/minibuild_demo/compute.out
 
 rule setup
-  run mkdir -p /tmp/minibuild_demo && echo "Setup complete"
+  inputs Buildfile
+  outputs /tmp/minibuild_demo/setup.stamp
+  run mkdir -p /tmp/minibuild_demo && echo "Setup complete" | tee /tmp/minibuild_demo/setup.stamp
