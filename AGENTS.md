@@ -9,7 +9,7 @@ into a DAG, and executes independent jobs concurrently.
 ## Build and test
 
 ```bash
-make ci           # Full CI suite (fmt, clippy, test, docs, lockfile, deny)
+make ci           # Full CI suite (fmt, clippy, test, docs, lockfile, deny, msrv)
 make quick        # Fast pre-commit: fmt + clippy + test
 make test         # Run tests only
 ```

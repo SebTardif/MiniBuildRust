@@ -92,6 +92,8 @@ jobs:
     name: MSRV (1.78.0)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      RUSTUP_TOOLCHAIN: "1.78.0"
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -104,7 +106,9 @@ jobs:
         with:
           toolchain: "1.78.0"
       - uses: Swatinem/rust-cache@v2
-      - run: make msrv
+        with:
+          shared-key: msrv-1.78
+      - run: cargo check --locked
 
   # ── Documentation ───────────────────────────────────────────────
   docs:

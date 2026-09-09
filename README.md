@@ -182,7 +182,7 @@ make test
 Every CI job can be reproduced locally via `make`. Run the full suite before committing to catch issues before they hit GitHub:
 
 ```bash
-make ci           # Full suite: fmt, clippy, test, docs, lockfile, deny
+make ci           # Full suite: fmt, clippy, test, docs, lockfile, deny, msrv
 make quick        # Fast pre-commit: fmt + clippy + test
 make fmt          # Auto-format code
 make fix          # Auto-fix clippy warnings + format
