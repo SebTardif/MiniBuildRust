@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
@@ -79,22 +79,24 @@ pub fn execute(
         })
         .collect();
 
-    let mut ready_queue: Vec<String> = Vec::new();
+    let mut ready_queue: VecDeque<String> = VecDeque::new();
 
     // Seed ready queue with zero in-degree nodes
     for name in order {
         if in_degree[name] == 0 {
-            ready_queue.push(name.clone());
+            ready_queue.push_back(name.clone());
         }
     }
-    ready_queue.sort();
+    ready_queue.make_contiguous().sort();
 
     let total = order.len();
 
     loop {
         // Launch jobs up to parallelism limit
-        while !ready_queue.is_empty() && in_flight.len() < opts.jobs {
-            let name = ready_queue.remove(0);
+        while in_flight.len() < opts.jobs {
+            let Some(name) = ready_queue.pop_front() else {
+                break;
+            };
 
             // Check if any upstream dependency failed
             let upstream_failed = if let Some(deps) = graph.deps.get(&name) {
@@ -120,7 +122,7 @@ pub fn execute(
 
             // Incremental build check
             if !rule.phony && !rule.inputs.is_empty() {
-                let cache_guard = cache.lock().unwrap();
+                let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
                 if cache_guard.is_up_to_date(&name, &rule.inputs, &rule.outputs) {
                     if opts.verbose {
                         eprintln!("[UP-TO-DATE] {}", name);
@@ -171,7 +173,7 @@ pub fn execute(
                         let rule = &bf.rules[&name];
                         // Record in cache
                         if !rule.phony {
-                            let mut cache_guard = cache.lock().unwrap();
+                            let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
                             cache_guard.record(&name, &rule.inputs, &rule.outputs);
                         }
                         eprintln!(
@@ -229,7 +231,7 @@ fn notify_dependents(
     graph: &BuildGraph,
     subset: &HashSet<String>,
     in_degree: &mut HashMap<String, usize>,
-    ready_queue: &mut Vec<String>,
+    ready_queue: &mut VecDeque<String>,
 ) {
     if let Some(dependents) = graph.rdeps.get(name) {
         let mut newly_ready = Vec::new();

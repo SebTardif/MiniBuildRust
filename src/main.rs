@@ -100,7 +100,11 @@ fn main() {
 
     // Save cache
     if !cli.dry_run {
-        if let Err(e) = cache.lock().unwrap().save(Path::new(".")) {
+        if let Err(e) = cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .save(Path::new("."))
+        {
             eprintln!("warning: failed to save cache: {}", e);
         }
     }

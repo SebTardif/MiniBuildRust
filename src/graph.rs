@@ -74,15 +74,21 @@ fn detect_cycle(graph: &BuildGraph) -> Result<(), String> {
                 match color.get(dep.as_str()) {
                     Some(Color::Gray) => {
                         // Found a cycle — extract the cycle path
-                        let cycle_start = path.iter().position(|&n| n == dep.as_str()).unwrap();
-                        let cycle: Vec<&str> = path[cycle_start..].to_vec();
-                        let mut desc = cycle
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect::<Vec<_>>()
-                            .join(" -> ");
-                        desc.push_str(&format!(" -> {dep}"));
-                        return Err(format!("circular dependency detected: {desc}"));
+                        match path.iter().position(|&n| n == dep.as_str()) {
+                            Some(cycle_start) => {
+                                let cycle: Vec<&str> = path[cycle_start..].to_vec();
+                                let mut desc = cycle
+                                    .iter()
+                                    .map(|s| s.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(" -> ");
+                                desc.push_str(&format!(" -> {dep}"));
+                                return Err(format!("circular dependency detected: {desc}"));
+                            }
+                            None => {
+                                return Err(format!("circular dependency detected: {dep}"));
+                            }
+                        }
                     }
                     Some(Color::Black) => continue,
                     _ => dfs(dep, graph, color, path)?,
@@ -168,10 +174,11 @@ pub fn topological_sort(graph: &BuildGraph, subset: &HashSet<String>) -> Vec<Str
                 if !subset.contains(dependent) {
                     continue;
                 }
-                let deg = in_degree.get_mut(dependent.as_str()).unwrap();
-                *deg -= 1;
-                if *deg == 0 {
-                    ready.push(dependent.as_str());
+                if let Some(deg) = in_degree.get_mut(dependent.as_str()) {
+                    *deg -= 1;
+                    if *deg == 0 {
+                        ready.push(dependent.as_str());
+                    }
                 }
             }
             ready.sort();

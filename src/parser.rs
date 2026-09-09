@@ -63,9 +63,11 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
     let mut global_env: HashMap<String, String> = HashMap::new();
     let mut default_target: Option<String> = None;
     let mut current_rule: Option<Rule> = None;
+    let mut last_line_num = 0;
 
     for (line_no, raw_line) in input.lines().enumerate() {
         let line_num = line_no + 1;
+        last_line_num = line_num;
         let line = raw_line.trim();
 
         // blank or comment
@@ -77,10 +79,7 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
         if !raw_line.starts_with(' ') && !raw_line.starts_with('\t') {
             // finalize previous rule
             if let Some(r) = current_rule.take() {
-                if rules.contains_key(&r.name) {
-                    return Err(format!("line {line_num}: duplicate rule '{}'", r.name));
-                }
-                rules.insert(r.name.clone(), r);
+                insert_rule(&mut rules, r, line_num)?;
             }
 
             if line == "rule" {
@@ -130,10 +129,7 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
 
     // finalize last rule
     if let Some(r) = current_rule.take() {
-        if rules.contains_key(&r.name) {
-            return Err(format!("duplicate rule '{}'", r.name));
-        }
-        rules.insert(r.name.clone(), r);
+        insert_rule(&mut rules, r, last_line_num)?;
     }
 
     if rules.is_empty() {
@@ -145,6 +141,18 @@ pub fn parse(input: &str) -> Result<BuildFile, String> {
         global_env,
         default_target,
     })
+}
+
+fn insert_rule(
+    rules: &mut HashMap<String, Rule>,
+    rule: Rule,
+    line_num: usize,
+) -> Result<(), String> {
+    if rules.contains_key(&rule.name) {
+        return Err(format!("line {line_num}: duplicate rule '{}'", rule.name));
+    }
+    rules.insert(rule.name.clone(), rule);
+    Ok(())
 }
 
 fn parse_kv(s: &str, line_num: usize) -> Result<(String, String), String> {
@@ -257,7 +265,8 @@ rule link
     #[test]
     fn test_parse_duplicate_rule() {
         let input = "rule a\n  run echo a\nrule a\n  run echo b\n";
-        assert!(parse(input).is_err());
+        let err = parse(input).unwrap_err();
+        assert!(err.contains("duplicate rule"), "got: {err}");
     }
 
     #[test]
