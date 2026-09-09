@@ -35,12 +35,8 @@ fn main() {
     // Parse from disk so include paths resolve relative to the file.
     let bf = match parser::parse_file(Path::new(&cli.file)) {
         Ok(bf) => bf,
-        Err(e) if e.starts_with("cannot read ") => {
-            eprintln!("error: {}", e);
-            process::exit(1);
-        }
         Err(e) => {
-            eprintln!("parse error: {}", e);
+            eprintln!("error: {}", e);
             process::exit(1);
         }
     };

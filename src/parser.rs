@@ -200,7 +200,13 @@ fn parse_into(
                 }
                 match include.as_mut() {
                     Some(ctx) => {
-                        include_file(spec, base_dir, ctx, rules, global_env, default_target)?;
+                        let from = ctx
+                            .stack
+                            .last()
+                            .map(|f| f.display.clone())
+                            .unwrap_or_else(|| "Buildfile".to_string());
+                        include_file(spec, base_dir, ctx, rules, global_env, default_target)
+                            .map_err(|e| wrap_include_error(line_num, spec, &from, e))?;
                     }
                     None => {
                         return Err(format!(
@@ -264,6 +270,40 @@ fn parse_into(
     }
 
     Ok(())
+}
+
+/// Attach the include site and included path to a failed `include`.
+///
+/// Missing files and cycles become `line N: cannot include 'spec': ...`.
+/// Nested parse errors become `line L of spec (included from file:N): ...`.
+fn wrap_include_error(line_num: usize, spec: &str, from_file: &str, err: String) -> String {
+    if let Some(rest) = err.strip_prefix("line ") {
+        if let Some((loc, msg)) = rest.split_once(": ") {
+            let first = loc.split_whitespace().next().unwrap_or("");
+            if !first.is_empty() && first.chars().all(|c| c.is_ascii_digit()) {
+                if let Some(stripped) = loc.strip_suffix(')') {
+                    if let Some(idx) = stripped.find(" (included from ") {
+                        let head = &stripped[..idx];
+                        let inner = &stripped[idx + " (included from ".len()..];
+                        return format!(
+                            "line {head} (included from {inner}, included from {from_file}:{line_num}): {msg}"
+                        );
+                    }
+                }
+                if loc.contains(" of ") {
+                    return format!("line {loc} (included from {from_file}:{line_num}): {msg}");
+                }
+                return format!(
+                    "line {loc} of {spec} (included from {from_file}:{line_num}): {msg}"
+                );
+            }
+        }
+    }
+    if err.starts_with("cannot include ") {
+        format!("line {line_num}: {err}")
+    } else {
+        format!("line {line_num}: cannot include '{spec}': {err}")
+    }
 }
 
 fn include_file(
@@ -636,6 +676,44 @@ rule link
         );
         let err = parse_file(&dir.join("parent.mb")).unwrap_err();
         assert!(err.contains("cannot include 'missing.mb'"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_missing_reports_line_and_spec() {
+        let dir = write_temp_build(
+            "minibuild_test_include_missing_line",
+            &[(
+                "parent.mb",
+                "env FOO = bar\ndefault a\ninclude vanished.mb\nrule a\n  run echo a\n",
+            )],
+        );
+        let err = parse_file(&dir.join("parent.mb")).unwrap_err();
+        assert!(err.contains("line 3"), "got: {err}");
+        assert!(err.contains("vanished.mb"), "got: {err}");
+        assert!(err.contains("cannot include 'vanished.mb'"), "got: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_include_nested_parse_error_reports_site() {
+        let dir = write_temp_build(
+            "minibuild_test_include_nested_parse",
+            &[
+                (
+                    "child.mb",
+                    "rule child\n  run echo child\nnot_a_directive oops\n",
+                ),
+                (
+                    "parent.mb",
+                    "env FOO = bar\ninclude child.mb\nrule parent\n  deps child\n  run echo parent\n",
+                ),
+            ],
+        );
+        let err = parse_file(&dir.join("parent.mb")).unwrap_err();
+        assert!(err.contains("line 3 of child.mb"), "got: {err}");
+        assert!(err.contains("included from parent.mb:2"), "got: {err}");
+        assert!(err.contains("unexpected"), "got: {err}");
         let _ = fs::remove_dir_all(&dir);
     }
 
