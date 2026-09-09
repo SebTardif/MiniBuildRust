@@ -58,7 +58,10 @@ minibuild --jobs 4 compile
 # See what would run without executing
 minibuild --dry-run
 
-# Clean cached state and rebuild from scratch
+# Clean cache and rebuild the default target
+minibuild --clean
+
+# Clean cached state and rebuild a specific target
 minibuild --clean all
 
 # Use a different build file

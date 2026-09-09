@@ -28,9 +28,6 @@ fn main() {
     if cli.clean {
         cache::BuildCache::clean(Path::new("."));
         eprintln!("Cache cleaned.");
-        if cli.target.is_none() {
-            return;
-        }
     }
 
     // Read build file
