@@ -144,6 +144,7 @@ Minibuild tracks the modification timestamps of each rule's `inputs` and `output
 3. The rule is not marked `phony`
 
 State is stored in `.minibuild_cache` in the working directory. Use `--clean` to reset it.
+The example Buildfile declares `inputs`, so a second `cargo run` skips unchanged rules.
 
 ## Architecture
 
