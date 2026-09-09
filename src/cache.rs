@@ -229,6 +229,10 @@ mod tests {
         cache.record("test", &inputs, &outputs);
         assert!(cache.is_up_to_date("test", &inputs, &outputs));
 
+        std::thread::sleep(std::time::Duration::from_millis(2100));
+        fs::write(&input_file, "changed").unwrap();
+        assert!(!cache.is_up_to_date("test", &inputs, &outputs));
+
         cache.invalidate("test");
         assert!(!cache.is_up_to_date("test", &inputs, &outputs));
 

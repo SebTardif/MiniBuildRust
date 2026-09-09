@@ -270,9 +270,8 @@ rule d
         assert!(matches!(&results2[0], RuleResult::Skipped(_)));
 
         // Modify input then rebuild
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(2100));
         fs::write(&input_file, "changed").unwrap();
-        cache.lock().unwrap().invalidate("build");
 
         let results3 = full_build(&input, "build", 1, &cache);
         assert!(matches!(&results3[0], RuleResult::Success(_)));
@@ -371,17 +370,37 @@ rule bad_branch
     /// Phony rules should never be skipped by cache.
     #[test]
     fn test_phony_never_cached() {
-        let input = "\
-rule always_run
-  phony true
-  run echo running
-";
-        let cache = Arc::new(Mutex::new(BuildCache::new()));
+        let dir = std::env::temp_dir().join("minibuild_test_phony_never_cached");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
 
-        let results1 = full_build(input, "always_run", 1, &cache);
+        let input_file = dir.join("input.txt");
+        let output_file = dir.join("output.txt");
+        fs::write(&input_file, "hello").unwrap();
+
+        let inp = input_file.to_string_lossy().replace('\\', "/");
+        let out = output_file.to_string_lossy().replace('\\', "/");
+
+        let cache = Arc::new(Mutex::new(BuildCache::new()));
+        cache
+            .lock()
+            .unwrap()
+            .record("always_run", std::slice::from_ref(&inp), &[]);
+
+        let phony = format!("rule always_run\n  phony true\n  inputs {inp}\n  run echo running\n");
+        let results1 = full_build(&phony, "always_run", 1, &cache);
         assert!(matches!(&results1[0], RuleResult::Success(_)));
 
-        let results2 = full_build(input, "always_run", 1, &cache);
+        let results2 = full_build(&phony, "always_run", 1, &cache);
         assert!(matches!(&results2[0], RuleResult::Success(_)));
+
+        let cached =
+            format!("rule cached\n  inputs {inp}\n  outputs {out}\n  run cp \"{inp}\" \"{out}\"\n");
+        let results3 = full_build(&cached, "cached", 1, &cache);
+        assert!(matches!(&results3[0], RuleResult::Success(_)));
+        let results4 = full_build(&cached, "cached", 1, &cache);
+        assert!(matches!(&results4[0], RuleResult::Skipped(_)));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

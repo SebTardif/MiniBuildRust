@@ -407,8 +407,8 @@ rule all\n  deps a b c d\n  phony true\n  run echo all done\n";
     fn test_env_expansion() {
         let input = "\
 env GREETING = hello
-rule test\n  env NAME = world\n  run echo $GREETING $NAME\n";
+rule test\n  env NAME = world\n  run test \"$GREETING\" = hello -a \"$NAME\" = world\n";
         let results = run_build(input, Some("test"), 1);
-        assert!(matches!(&results[0], RuleResult::Success(_)));
+        assert!(matches!(&results[0], RuleResult::Success(n) if n == "test"));
     }
 }
