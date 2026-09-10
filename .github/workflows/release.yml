@@ -91,3 +91,29 @@ jobs:
           files: |
             minibuild-*.tar.gz
             minibuild-*.zip
+
+  apply-notes:
+    name: Apply curated notes
+    needs: [release-please, build-binaries]
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_NOTES: ${{ vars.RELEASE_NOTES }}
+      RELEASE_NOTES_TAG: ${{ vars.RELEASE_NOTES_TAG }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Apply curated release notes
+        continue-on-error: true
+        run: bash scripts/apply-release-notes.sh

@@ -1,0 +1,44 @@
+# Cheap apply of curated notes onto a GitHub Release.
+# Reads branch release-note-<semver> or vars RELEASE_NOTES +
+# RELEASE_NOTES_TAG. Deletes the notes branch after a successful
+# apply. Does not compile.
+name: Apply release notes
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v0.3.0)"
+        required: true
+        type: string
+
+concurrency:
+  group: apply-release-notes-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    name: Apply notes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+      RELEASE_NOTES: ${{ vars.RELEASE_NOTES }}
+      RELEASE_NOTES_TAG: ${{ vars.RELEASE_NOTES_TAG }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Apply curated notes
+        run: bash scripts/apply-release-notes.sh
