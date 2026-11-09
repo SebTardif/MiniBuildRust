@@ -53,14 +53,22 @@ jobs:
             sha=true
           fi
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+      - name: Create app token
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major' || steps.sha-pin.outputs.sha == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.AUTO_APPROVE_APP_ID }}
+          private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
       - name: Approve and enable auto-merge
         if: steps.metadata.outputs.update-type != 'version-update:semver-major' || steps.sha-pin.outputs.sha == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: |
           gh pr review --approve "$PR_URL"
-          gh pr merge --auto --squash "$PR_URL"
+          GH_TOKEN="$APP_TOKEN" gh pr merge --auto --squash "$PR_URL"
       - name: Skip major updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-major' && steps.sha-pin.outputs.sha != 'true'
         run: echo "Skipping a real major update for manual review"

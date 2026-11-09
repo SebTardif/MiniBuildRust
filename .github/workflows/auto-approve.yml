@@ -21,12 +21,13 @@ jobs:
       contents: write
       pull-requests: write
     # Dependabot is handled by dependabot-auto-merge.yml.
-    # github-actions[bot] cannot approve a release-please pull it authored.
+    # Approve with GITHUB_TOKEN. Merge with the app so the push is not suppressed.
+    # Do not let the app approve a pull request it authored.
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.user.login != 'github-actions[bot]' &&
-      github.actor == 'SebTardif'
+      (github.actor == 'SebTardif' || github.actor == 'minibuild-release[bot]')
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
@@ -38,12 +39,20 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: gh pr review --approve "${PR_NUMBER}" --repo "${REPO}"
+      - name: Create app token
+        if: github.event.pull_request.user.login != 'minibuild-release[bot]'
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.AUTO_APPROVE_APP_ID }}
+          private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
       - name: Enable auto-merge
         if: >-
           !github.event.pull_request.draft &&
+          github.event.pull_request.user.login != 'minibuild-release[bot]' &&
           !contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: gh pr merge --auto --squash "${PR_NUMBER}" --repo "${REPO}"
