@@ -31,6 +31,14 @@ cargo run
 ./target/release/minibuild
 ```
 
+The published binary is also on Homebrew:
+
+```bash
+brew tap SebTardif/minibuild
+brew trust --tap SebTardif/minibuild
+brew install minibuild
+```
+
 ## CLI Usage
 
 ```
