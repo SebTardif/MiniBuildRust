@@ -127,6 +127,18 @@ class WorkflowTriggerTests(unittest.TestCase):
         self.assertIn("name: Workflow sanity", ci)
         self.assertIn("scripts/report-scheduled-failure.py", ci)
         self.assertIn("test_check_dco.py", ci)
+        self.assertIn("test_publish_homebrew_formula.py", ci)
+
+    def test_homebrew_formula_publishes_only_after_a_release(self) -> None:
+        release = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+        homebrew = release.split("homebrew:", 1)[1]
+        self.assertIn("needs: [release-please, build-binaries]", homebrew)
+        self.assertIn("needs.release-please.outputs.release_created", homebrew)
+        self.assertIn("bash scripts/publish-homebrew-formula.sh", homebrew)
+        self.assertIn("secrets.HOMEBREW_TAP_KEY", homebrew)
+        self.assertNotIn("cargo-dist", release)
+        self.assertNotIn("dist-workspace.toml", release)
+        self.assertTrue((ROOT / "scripts" / "publish-homebrew-formula.sh").is_file())
 
 
 if __name__ == "__main__":

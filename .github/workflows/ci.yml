@@ -46,6 +46,7 @@ jobs:
           python3 scripts/test_workflow_triggers.py
           python3 scripts/test_report_scheduled_failure.py
           python3 scripts/test_check_dco.py
+          python3 scripts/test_publish_homebrew_formula.py
 
   clippy:
     name: Clippy
