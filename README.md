@@ -119,7 +119,7 @@ rule link
 
 | Directive | Description |
 |---|---|
-| `env KEY = VALUE` | Set a global environment variable |
+| `env KEY = VALUE` | Set an environment variable for every command, and for `$KEY` in the command text |
 | `default <target>` | Default target when none given on CLI |
 | `rule <name>` | Begin a rule block |
 | `include <path>` | Load another Buildfile relative to this file |
@@ -139,7 +139,7 @@ A missing include fails as `cannot include '<path>'` and names the include line 
 | `deps <rule> [rule...]` | Rules that must complete before this one |
 | `inputs <file> [file...]` | Input files (used for incremental build detection) |
 | `outputs <file> [file...]` | Output files (used for incremental build detection) |
-| `env KEY = VALUE` | Rule-scoped environment variable (overrides globals) |
+| `env KEY = VALUE` | Rule-scoped environment variable (overrides globals). Exported to that rule's commands |
 | `run <command>` | Shell command to execute (multiple allowed, run in order) |
 | `description <text>` | Human-readable description of the rule |
 | `phony true` | Mark as phony — always re-execute, never cache |
