@@ -43,6 +43,22 @@ class WorkflowTriggerTests(unittest.TestCase):
         rel = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
         self.assertIn("bash scripts/apply-release-notes.sh", rel)
 
+    def test_release_publishes_the_crate_after_the_tag(self) -> None:
+        rel = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+        publish = rel.split("publish-crate:", 1)[1].split("build-binaries:", 1)[0]
+        self.assertIn("needs: release-please", publish)
+        self.assertIn("needs.release-please.outputs.release_created", publish)
+        self.assertIn("id-token: write", publish)
+        self.assertIn("persist-credentials: false", publish)
+        self.assertIn(
+            "rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5",
+            publish,
+        )
+        self.assertIn("cargo publish --dry-run --locked", publish)
+        self.assertIn("bash scripts/publish-crate.sh", publish)
+        self.assertNotIn("cargo publish || true", publish)
+        self.assertTrue((ROOT / "scripts" / "publish-crate.sh").is_file())
+
     def test_release_please_heads_have_light_path(self) -> None:
         ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("startsWith(github.head_ref, 'release-please')", ci)
