@@ -60,6 +60,10 @@ jobs:
         with:
           app-id: ${{ vars.AUTO_APPROVE_APP_ID }}
           private-key: ${{ secrets.AUTO_APPROVE_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-workflows: write
       - name: Approve and enable auto-merge
         if: steps.metadata.outputs.update-type != 'version-update:semver-major' || steps.sha-pin.outputs.sha == 'true'
         env:
