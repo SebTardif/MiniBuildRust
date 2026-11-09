@@ -47,10 +47,14 @@ impl BuildCache {
         Ok(())
     }
 
-    /// Delete the cache file.
-    pub fn clean(dir: &Path) {
+    /// Delete the cache file. A missing file is already clean.
+    pub fn clean(dir: &Path) -> io::Result<()> {
         let path = dir.join(CACHE_FILE);
-        let _ = fs::remove_file(&path);
+        match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 
     /// Check if a rule needs rebuilding.
@@ -281,9 +285,27 @@ mod tests {
         cache.save(&dir).unwrap();
         assert!(dir.join(CACHE_FILE).exists());
 
-        BuildCache::clean(&dir);
+        BuildCache::clean(&dir).unwrap();
         assert!(!dir.join(CACHE_FILE).exists());
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_clean_missing_file_is_ok() {
+        let dir = std::env::temp_dir().join("minibuild_test_clean_missing");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        assert!(BuildCache::clean(&dir).is_ok());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_clean_fails_when_cache_path_is_a_directory() {
+        let dir = std::env::temp_dir().join("minibuild_test_clean_dir");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(CACHE_FILE)).unwrap();
+        assert!(BuildCache::clean(&dir).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 

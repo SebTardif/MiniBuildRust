@@ -13,6 +13,8 @@ pub struct Rule {
     pub env: HashMap<String, String>,
     pub description: String,
     pub phony: bool,
+    /// 1-based line of the `rule` header. Used when reporting a duplicate name.
+    header_line: usize,
 }
 
 impl Rule {
@@ -26,6 +28,7 @@ impl Rule {
             env: HashMap::new(),
             description: String::new(),
             phony: false,
+            header_line: 0,
         }
     }
 }
@@ -159,11 +162,9 @@ fn parse_into(
     default_target: &mut Option<String>,
 ) -> Result<(), String> {
     let mut current_rule: Option<Rule> = None;
-    let mut last_line_num = 0;
 
     for (line_no, raw_line) in input.lines().enumerate() {
         let line_num = line_no + 1;
-        last_line_num = line_num;
         let line = raw_line.trim();
 
         // blank or comment
@@ -175,7 +176,7 @@ fn parse_into(
         if !raw_line.starts_with(' ') && !raw_line.starts_with('\t') {
             // finalize previous rule
             if let Some(r) = current_rule.take() {
-                insert_rule(rules, r, line_num)?;
+                insert_rule(rules, r)?;
             }
 
             if line == "rule" {
@@ -185,7 +186,9 @@ fn parse_into(
                 if name.is_empty() {
                     return Err(format!("line {line_num}: rule has no name"));
                 }
-                current_rule = Some(Rule::new(name));
+                let mut rule = Rule::new(name);
+                rule.header_line = line_num;
+                current_rule = Some(rule);
             } else if let Some(rest) = line.strip_prefix("env ") {
                 let (k, v) = parse_kv(rest, line_num)?;
                 global_env.insert(k, v);
@@ -266,7 +269,7 @@ fn parse_into(
 
     // finalize last rule
     if let Some(r) = current_rule.take() {
-        insert_rule(rules, r, last_line_num)?;
+        insert_rule(rules, r)?;
     }
 
     Ok(())
@@ -352,13 +355,12 @@ fn include_file(
     result
 }
 
-fn insert_rule(
-    rules: &mut HashMap<String, Rule>,
-    rule: Rule,
-    line_num: usize,
-) -> Result<(), String> {
+fn insert_rule(rules: &mut HashMap<String, Rule>, rule: Rule) -> Result<(), String> {
     if rules.contains_key(&rule.name) {
-        return Err(format!("line {line_num}: duplicate rule '{}'", rule.name));
+        return Err(format!(
+            "line {}: duplicate rule '{}'",
+            rule.header_line, rule.name
+        ));
     }
     rules.insert(rule.name.clone(), rule);
     Ok(())
@@ -479,6 +481,10 @@ rule link
     fn test_parse_duplicate_rule() {
         let input = "rule a\n  run echo a\nrule a\n  run echo b\n";
         let err = parse(input).unwrap_err();
+        assert!(
+            err.starts_with("line 3:"),
+            "duplicate should name the second rule header, got: {err}"
+        );
         assert!(err.contains("duplicate rule"), "got: {err}");
     }
 
@@ -730,6 +736,10 @@ rule link
             ],
         );
         let err = parse_file(&dir.join("parent.mb")).unwrap_err();
+        assert!(
+            err.starts_with("line 2:"),
+            "duplicate should name the parent rule header, got: {err}"
+        );
         assert!(err.contains("duplicate rule"), "got: {err}");
         assert!(err.contains("shared"), "got: {err}");
         let _ = fs::remove_dir_all(&dir);

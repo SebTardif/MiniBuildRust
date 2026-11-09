@@ -25,10 +25,13 @@ fn main() {
 
     // Clean mode: `--clean --dry-run` plans a full rebuild but keeps the file.
     if cli.clean {
-        if apply_clean(true, cli.dry_run, Path::new(".")) {
-            eprintln!("Cache cleaned.");
-        } else {
-            eprintln!("would clean cache");
+        match apply_clean(true, cli.dry_run, Path::new(".")) {
+            Ok(true) => eprintln!("Cache cleaned."),
+            Ok(false) => eprintln!("would clean cache"),
+            Err(msg) => {
+                eprintln!("error: {msg}");
+                process::exit(1);
+            }
         }
     }
 
@@ -121,13 +124,14 @@ fn main() {
 }
 
 /// Delete `.minibuild_cache` only when `--clean` is set and this is not a dry-run.
-/// Returns whether the file was deleted.
-fn apply_clean(clean: bool, dry_run: bool, dir: &Path) -> bool {
+/// `Ok(true)` means the clean succeeded, including when the file was already gone.
+/// `Ok(false)` means this call did not try to delete the file.
+fn apply_clean(clean: bool, dry_run: bool, dir: &Path) -> Result<bool, String> {
     if !clean || dry_run {
-        return false;
+        return Ok(false);
     }
-    cache::BuildCache::clean(dir);
-    true
+    cache::BuildCache::clean(dir).map_err(|e| format!("failed to clean cache: {e}"))?;
+    Ok(true)
 }
 
 fn missing_target_message(rule_names: &[&str]) -> String {
@@ -452,7 +456,7 @@ rule bad_branch
         let cache_path = dir.join(".minibuild_cache");
         fs::write(&cache_path, "RULE test\n").unwrap();
 
-        assert!(!super::apply_clean(true, true, &dir));
+        assert!(!super::apply_clean(true, true, &dir).unwrap());
         assert!(cache_path.exists());
 
         let _ = fs::remove_dir_all(&dir);
@@ -466,8 +470,21 @@ rule bad_branch
         let cache_path = dir.join(".minibuild_cache");
         fs::write(&cache_path, "RULE test\n").unwrap();
 
-        assert!(super::apply_clean(true, false, &dir));
+        assert!(super::apply_clean(true, false, &dir).unwrap());
         assert!(!cache_path.exists());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_apply_clean_fails_when_cache_path_is_a_directory() {
+        let dir = std::env::temp_dir().join("minibuild_test_apply_clean_dir");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join(".minibuild_cache")).unwrap();
+
+        let err = super::apply_clean(true, false, &dir).unwrap_err();
+        assert!(err.contains("failed to clean cache"), "got: {err}");
+        assert!(dir.join(".minibuild_cache").exists());
 
         let _ = fs::remove_dir_all(&dir);
     }

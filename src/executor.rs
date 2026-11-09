@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -249,6 +249,30 @@ pub fn execute(
     results
 }
 
+/// Read a command pipe until EOF. Invalid UTF-8 is shown lossily so a
+/// later line is not dropped and the pipe is not closed early.
+fn stream_lines(reader: impl Read, mut on_line: impl FnMut(&str)) {
+    let mut reader = BufReader::new(reader);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {
+                if buf.last() == Some(&b'\n') {
+                    buf.pop();
+                    if buf.last() == Some(&b'\r') {
+                        buf.pop();
+                    }
+                }
+                let line = String::from_utf8_lossy(&buf);
+                on_line(&line);
+            }
+            Err(_) => break,
+        }
+    }
+}
+
 /// Line printed when dry-run skips a cached, up-to-date rule.
 fn dry_run_up_to_date_line(name: &str) -> String {
     format!("[DRY-RUN] skip {name} (up to date)")
@@ -347,6 +371,7 @@ fn execute_rule(
         let mut child = Command::new("sh")
             .arg("-c")
             .arg(&cmd)
+            .envs(env)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -356,25 +381,17 @@ fn execute_rule(
         let stderr = child.stderr.take();
         let rule_name = name.to_string();
 
-        // Stream stdout in a thread
         let rule_name_out = rule_name.clone();
         let stdout_handle = stdout.map(|out| {
             thread::spawn(move || {
-                let reader = BufReader::new(out);
-                for line in reader.lines().map_while(Result::ok) {
-                    println!("[{}] {}", rule_name_out, line);
-                }
+                stream_lines(out, |line| println!("[{}] {}", rule_name_out, line));
             })
         });
 
-        // Stream stderr in a thread
         let rule_name_err = rule_name.clone();
         let stderr_handle = stderr.map(|err| {
             thread::spawn(move || {
-                let reader = BufReader::new(err);
-                for line in reader.lines().map_while(Result::ok) {
-                    eprintln!("[{}] {}", rule_name_err, line);
-                }
+                stream_lines(err, |line| eprintln!("[{}] {}", rule_name_err, line));
             })
         });
 
@@ -488,6 +505,32 @@ env GREETING = hello
 rule test\n  env NAME = world\n  run test \"$GREETING\" = hello -a \"$NAME\" = world\n";
         let results = run_build(input, Some("test"), 1);
         assert!(matches!(&results[0], RuleResult::Success(n) if n == "test"));
+    }
+
+    /// Keys are exported to the child. The command text uses `$(printenv ...)`
+    /// so `$NAME` substitution cannot satisfy the check. The rule value wins.
+    #[test]
+    fn test_env_is_exported_to_the_child() {
+        let input = "\
+env MINIBUILD_AUDIT_TOKEN = from-global
+rule test
+  env MINIBUILD_AUDIT_TOKEN = from-rule
+  run sh -c 'test \"$(printenv MINIBUILD_AUDIT_TOKEN)\" = from-rule'
+";
+        let results = run_build(input, Some("test"), 1);
+        assert!(matches!(&results[0], RuleResult::Success(n) if n == "test"));
+    }
+
+    #[test]
+    fn test_stream_lines_keeps_text_after_non_utf8() {
+        let input = b"ok\xff\nmore\n";
+        let mut got = Vec::new();
+        stream_lines(std::io::Cursor::new(&input[..]), |line| {
+            got.push(line.to_string())
+        });
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert!(got[0].starts_with("ok"), "{got:?}");
+        assert_eq!(got[1], "more");
     }
 
     /// After a successful cached build, dry-run must still report the skip.
