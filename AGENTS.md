@@ -36,3 +36,5 @@ src/
 - Integration tests are in `src/main.rs` under `mod integration_tests`.
 - Clippy warnings are errors in CI (`-D warnings`).
 - Format with `cargo fmt --all` before committing.
+- Every commit needs `git commit -s`. The sign-off email is `git config user.email`.
+- Workflow tests live in `scripts/test_*.py`. The Rustfmt job runs them.

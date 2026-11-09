@@ -1,0 +1,49 @@
+name: Auto-approve
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: auto-approve-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  auto-approve:
+    name: Auto-approve
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    # Dependabot is handled by dependabot-auto-merge.yml.
+    # github-actions[bot] cannot approve a release-please pull it authored.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'github-actions[bot]' &&
+      github.actor == 'SebTardif'
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - name: Approve PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: gh pr review --approve "${PR_NUMBER}" --repo "${REPO}"
+      - name: Enable auto-merge
+        if: >-
+          !github.event.pull_request.draft &&
+          !contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: gh pr merge --auto --squash "${PR_NUMBER}" --repo "${REPO}"

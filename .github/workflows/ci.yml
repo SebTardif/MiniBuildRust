@@ -33,10 +33,10 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: rustfmt
       - run: make fmt-check
@@ -44,6 +44,8 @@ jobs:
         run: |
           python3 scripts/test_apply_release_notes.py
           python3 scripts/test_workflow_triggers.py
+          python3 scripts/test_report_scheduled_failure.py
+          python3 scripts/test_check_dco.py
 
   clippy:
     name: Clippy
@@ -54,13 +56,13 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch' }}
       - name: Clippy
@@ -78,28 +80,34 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Recipe G: version-bump PRs already ran the feature-PR matrix.
-        # Extra OS is optional; keep ubuntu so the Test name still reports.
-        os: ${{ (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please')) && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest","macos-latest","windows-latest"]') }}
+        # Always emit every OS name. A release-please head still runs the
+        # ubuntu tests and only checks out on the other OS so the check exists.
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Harden runner
         if: runner.os == 'Linux'
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please') || runner.os == 'Linux'
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please') || runner.os == 'Linux'
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please') || runner.os == 'Linux'
         with:
           save-if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch' }}
       - name: Test
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please') || runner.os == 'Linux')
         run: make test
       - name: Test
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'release-please'))
         run: cargo test --locked
+      - name: Release-please check
+        if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please') && runner.os != 'Linux'
+        run: echo "release-please keeps this check without a full test run"
 
   # ── MSRV check ─────────────────────────────────────────────────
   msrv:
@@ -113,13 +121,13 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: "1.78.0"
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: msrv-1.78
           save-if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch' }}
@@ -135,11 +143,11 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch' }}
       - run: make docs
@@ -154,8 +162,71 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - run: make lockfile
+
+  workflow-sanity:
+    name: Workflow sanity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: actionlint
+        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+      - name: zizmor
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          min-severity: high
+          online-audits: "false"
+          advanced-security: "false"
+          annotations: "true"
+          version: "1.32.0"
+
+  report-failure:
+    name: Report CI failure
+    needs: [fmt, clippy, test, msrv, docs, lockfile, workflow-sanity]
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_RESULTS: >-
+            fmt=${{ needs.fmt.result }}
+            clippy=${{ needs.clippy.result }}
+            test=${{ needs.test.result }}
+            msrv=${{ needs.msrv.result }}
+            docs=${{ needs.docs.result }}
+            lockfile=${{ needs.lockfile.result }}
+            workflow-sanity=${{ needs.workflow-sanity.result }}
+        run: |
+          python3 scripts/report-scheduled-failure.py \
+            --repo "${GH_REPO}" \
+            --run-id "${RUN_ID}" \
+            --run-url "${RUN_URL}" \
+            --prefix "CI scheduled" \
+            --label ci-scheduled-failure \
+            --assignee SebTardif

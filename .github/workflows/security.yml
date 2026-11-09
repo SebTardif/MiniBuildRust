@@ -1,73 +1,160 @@
 name: Security Audit
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "deny.toml"
-      - ".github/workflows/security.yml"
   pull_request:
-    paths:
-      - "**/Cargo.toml"
-      - "**/Cargo.lock"
-      - "deny.toml"
-      - ".github/workflows/security.yml"
+  merge_group:
   schedule:
-    # Run daily at 06:37 UTC to catch newly disclosed advisories
+    # Daily at 06:37 UTC to catch newly disclosed advisories.
     - cron: "37 6 * * *"
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  # ── cargo-deny: licenses, bans, sources, advisories ────────────
   cargo-deny:
-    name: cargo-deny (${{ matrix.checks }})
+    name: cargo-deny
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: bans licenses sources
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check
+          command-arguments: bans licenses sources
+      # New upstream advisories should not block a pull request.
+      - name: advisories
+        continue-on-error: true
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check
+          command-arguments: advisories
+
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions-rust-lang/audit@72c09e02f132669d52284a3323acdb503cfc1a24 # v1
+
+  gitleaks:
+    name: Gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/gitleaks.tar.gz"
+          bindir="${RUNNER_TEMP}/gitleaks-bin"
+          mkdir -p "${bindir}"
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL \
+            -o "${archive}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA}  ${archive}" | sha256sum -c -
+          tar -xzf "${archive}" -C "${bindir}" gitleaks
+          echo "${bindir}" >> "${GITHUB_PATH}"
+      - name: Scan
+        run: gitleaks detect --source . --exit-code 1 --redact
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
-        checks:
-          - advisories
-          - bans licenses sources
-    # New upstream advisories should not block PRs
-    continue-on-error: ${{ matrix.checks == 'advisories' }}
+        include:
+          # This CodeQL bundle rejects build-mode manual for Rust.
+          - language: rust
+            build-mode: none
+          - language: actions
+            build-mode: none
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
-          command: check
-          command-arguments: ${{ matrix.checks }}
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-and-quality
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          category: /language:${{ matrix.language }}
 
-  # ── cargo-audit: RustSec advisory database scan ────────────────
-  cargo-audit:
-    name: cargo-audit
-    # Skip on fork PRs to avoid arbitrary code execution
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+  report-failure:
+    name: Report security failure
+    needs: [cargo-deny, cargo-audit, gitleaks, codeql]
+    if: always() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions-rust-lang/audit@v1
+      - name: Report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          JOB_RESULTS: >-
+            cargo-deny=${{ needs.cargo-deny.result }}
+            cargo-audit=${{ needs.cargo-audit.result }}
+            gitleaks=${{ needs.gitleaks.result }}
+            codeql=${{ needs.codeql.result }}
+        run: |
+          python3 scripts/report-scheduled-failure.py \
+            --repo "${GH_REPO}" \
+            --run-id "${RUN_ID}" \
+            --run-url "${RUN_URL}" \
+            --prefix "Security scheduled" \
+            --label ci-scheduled-failure \
+            --assignee SebTardif

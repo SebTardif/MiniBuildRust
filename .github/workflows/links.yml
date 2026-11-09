@@ -1,0 +1,65 @@
+name: Links
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "17 12 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: links-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  links:
+    name: Links Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check links
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2
+        with:
+          args: --no-progress --config lychee.toml '**/*.md'
+          fail: ${{ github.event_name != 'pull_request' }}
+
+  check-links:
+    name: Check Links
+    needs: links
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - name: Gate
+        env:
+          RESULT: ${{ needs.links.result }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          echo "links result: ${RESULT} (event=${EVENT})"
+          if [ "${RESULT}" = "skipped" ] || [ "${RESULT}" = "success" ]; then
+            echo "Check Links: OK (${RESULT})"
+            exit 0
+          fi
+          if [ "${EVENT}" = "pull_request" ]; then
+            echo "::warning::Link check ${RESULT} on a pull request. Fix broken links before they hit master."
+            exit 0
+          fi
+          echo "Link check failed or was cancelled"
+          exit 1

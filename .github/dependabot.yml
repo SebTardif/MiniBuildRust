@@ -1,19 +1,30 @@
 version: 2
 updates:
-  # Keep GitHub Actions up to date
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    rebase-strategy: "auto"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
     groups:
       actions:
-        patterns: ["*"]
+        patterns:
+          - "*"
 
-  # Keep Cargo dependencies up to date
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
       interval: "weekly"
+    rebase-strategy: "auto"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
     groups:
       rust-deps:
-        patterns: ["*"]
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
