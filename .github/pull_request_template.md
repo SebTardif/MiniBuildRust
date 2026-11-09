@@ -1,0 +1,5 @@
+## Summary
+
+## Checks
+
+- [ ] I signed off all commits (`git commit -s`)

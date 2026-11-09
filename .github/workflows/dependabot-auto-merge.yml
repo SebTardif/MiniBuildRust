@@ -1,0 +1,66 @@
+name: Dependabot auto-merge
+
+on:
+  # Base-branch workflow only. The job does not check out the pull request.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    name: Dependabot auto-merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Trusted workflow from the default branch. Do not checkout the pull head.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.user.login == 'dependabot[bot]'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Detect a SHA pin labeled as a major
+        id: sha-pin
+        env:
+          PREV: ${{ steps.metadata.outputs.previous-version }}
+          DEPS: ${{ steps.metadata.outputs.updated-dependencies-json }}
+        run: |
+          set -euo pipefail
+          sha=false
+          if [ -n "${DEPS}" ] && [ "${DEPS}" != "null" ]; then
+            if printf '%s' "$DEPS" | jq -e '
+              type == "array" and length > 0 and
+              all(.[]; (.prevVersion // "") | test("^[0-9a-f]{40}$"))
+            ' >/dev/null; then
+              sha=true
+            fi
+          elif printf '%s' "$PREV" | grep -Eq '^[0-9a-f]{40}$'; then
+            sha=true
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+      - name: Approve and enable auto-merge
+        if: steps.metadata.outputs.update-type != 'version-update:semver-major' || steps.sha-pin.outputs.sha == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr review --approve "$PR_URL"
+          gh pr merge --auto --squash "$PR_URL"
+      - name: Skip major updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major' && steps.sha-pin.outputs.sha != 'true'
+        run: echo "Skipping a real major update for manual review"

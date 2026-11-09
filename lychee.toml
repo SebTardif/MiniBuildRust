@@ -1,0 +1,14 @@
+# Link check exclusions. Patterns are Rust regexes matched against the full URL.
+max_retries = 3
+retry_wait_time = 2
+exclude_path = ["target"]
+
+exclude = [
+  "localhost",
+  "127\\.0\\.0\\.1",
+  "file://",
+  # release-please compare and tag URLs can 404 until the tag exists.
+  "github\\.com/.*/compare/.*v.*\\.\\.\\..*v",
+  "github\\.com/.*/releases/tag/.*v\\d",
+  "example\\.com",
+]

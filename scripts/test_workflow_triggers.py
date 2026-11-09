@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -63,6 +64,67 @@ class WorkflowTriggerTests(unittest.TestCase):
         ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
         self.assertIn("startsWith(github.head_ref, 'release-please')", ci)
         self.assertIn("cargo check --locked --all-targets", ci)
+        self.assertIn("os: [ubuntu-latest, macos-latest, windows-latest]", ci)
+        self.assertIn("release-please keeps this check without a full test run", ci)
+
+    def test_actions_are_pinned_by_sha(self) -> None:
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if "uses:" not in line or line.lstrip().startswith("#"):
+                    continue
+                self.assertIsNotNone(
+                    re.search(r"uses:\s+\S+@[0-9a-f]{40}\b", line),
+                    f"{path.name}:{lineno} is not pinned: {line.strip()}",
+                )
+                self.assertIsNone(
+                    re.search(r"uses:\s+\S+@v\d", line),
+                    f"{path.name}:{lineno} uses a floating tag: {line.strip()}",
+                )
+
+    def test_security_has_no_path_filter(self) -> None:
+        text = (WORKFLOWS / "security.yml").read_text(encoding="utf-8")
+        on_block = _on_block(text)
+        self.assertIn("pull_request:", on_block)
+        self.assertIn("merge_group:", on_block)
+        self.assertNotIn("paths:", on_block)
+        self.assertIn("name: Gitleaks", text)
+        self.assertIn("name: CodeQL (${{ matrix.language }})", text)
+        self.assertIn("build-mode: manual", text)
+        self.assertIn("queries: security-and-quality", text)
+        self.assertIn("scripts/report-scheduled-failure.py", text)
+
+    def test_required_check_workflows_exist(self) -> None:
+        dco = (WORKFLOWS / "dco.yml").read_text(encoding="utf-8")
+        self.assertIn("name: DCO Sign-off", dco)
+        self.assertIn("bash scripts/check-dco.sh", dco)
+        self.assertIn("cancel-in-progress: false", dco)
+        title = (WORKFLOWS / "pr-title.yml").read_text(encoding="utf-8")
+        self.assertIn("name: Semantic PR Title", title)
+        self.assertIn("cancel-in-progress: false", title)
+        self.assertIn("dependabot[bot]", title)
+        links = (WORKFLOWS / "links.yml").read_text(encoding="utf-8")
+        self.assertIn("name: Check Links", links)
+        self.assertNotIn("!RELEASE_NOTES.md", links)
+        scorecard = (WORKFLOWS / "scorecard.yml").read_text(encoding="utf-8")
+        self.assertIn("branches: [master]", scorecard)
+        self.assertIn("results.sarif", scorecard)
+        approve = (WORKFLOWS / "auto-approve.yml").read_text(encoding="utf-8")
+        self.assertIn("github.actor == 'SebTardif'", approve)
+        self.assertIn("github-actions[bot]", approve)
+        self.assertIn("autorelease: pending", approve)
+        self.assertNotIn("dependabot[bot]", approve)
+        self.assertNotIn("create-github-app-token", approve)
+        dependabot = (WORKFLOWS / "dependabot-auto-merge.yml").read_text(encoding="utf-8")
+        self.assertIn("pull_request_target:", dependabot)
+        self.assertIn("github.event.pull_request.user.login == 'dependabot[bot]'", dependabot)
+        self.assertNotIn("github.actor == 'dependabot[bot]'", dependabot)
+        self.assertNotIn("actions/checkout", dependabot)
+        self.assertIn("version-update:semver-major", dependabot)
+        self.assertNotIn("create-github-app-token", dependabot)
+        ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("name: Workflow sanity", ci)
+        self.assertIn("scripts/report-scheduled-failure.py", ci)
+        self.assertIn("test_check_dco.py", ci)
 
 
 if __name__ == "__main__":

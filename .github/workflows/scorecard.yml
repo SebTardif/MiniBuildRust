@@ -1,0 +1,70 @@
+name: Scorecard
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "30 1 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  scorecard:
+    name: OpenSSF Scorecard
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      # Publish to api.scorecard.dev is flaky. Keep the SARIF when analysis
+      # wrote it. Fail only when results.sarif is still empty after one retry.
+      - name: Run Scorecard
+        id: scorecard
+        continue-on-error: true
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Retry Scorecard after empty results
+        id: scorecard_retry
+        if: hashFiles('results.sarif') == ''
+        continue-on-error: true
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fail if Scorecard produced no results
+        if: hashFiles('results.sarif') == ''
+        env:
+          FIRST: ${{ steps.scorecard.outcome }}
+          RETRY: ${{ steps.scorecard_retry.outcome }}
+        run: |
+          echo "Scorecard analysis did not write results.sarif after one retry"
+          echo "first outcome=${FIRST} retry outcome=${RETRY}"
+          exit 1
+      - name: Upload SARIF
+        if: hashFiles('results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          sarif_file: results.sarif
