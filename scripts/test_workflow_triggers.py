@@ -89,7 +89,9 @@ class WorkflowTriggerTests(unittest.TestCase):
         self.assertNotIn("paths:", on_block)
         self.assertIn("name: Gitleaks", text)
         self.assertIn("name: CodeQL (${{ matrix.language }})", text)
-        self.assertIn("build-mode: manual", text)
+        self.assertNotIn("build-mode: manual", text)
+        self.assertIn("language: rust", text)
+        self.assertIn("build-mode: none", text)
         self.assertIn("queries: security-and-quality", text)
         self.assertIn("scripts/report-scheduled-failure.py", text)
 

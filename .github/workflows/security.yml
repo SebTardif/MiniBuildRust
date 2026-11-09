@@ -98,8 +98,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # This CodeQL bundle rejects build-mode manual for Rust.
           - language: rust
-            build-mode: manual
+            build-mode: none
           - language: actions
             build-mode: none
     steps:
@@ -110,17 +111,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        if: matrix.language == 'rust'
       - name: Initialize CodeQL
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-and-quality
-      - name: Build Rust for CodeQL
-        if: matrix.language == 'rust'
-        run: cargo build --locked
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
         with:
